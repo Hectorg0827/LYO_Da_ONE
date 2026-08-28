@@ -82,6 +82,9 @@ jobs:
       - name: Verify Android post detail reliability
         run: node scripts/verify-android-post-detail-reliability.mjs
 
+      - name: Verify Android study groups reliability
+        run: node scripts/verify-android-groups-reliability.mjs
+
   ios:
     name: Build & Test (iOS)
     runs-on: macos-14
