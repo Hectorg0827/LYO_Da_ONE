@@ -53,11 +53,18 @@ class LivingClassroomService: ObservableObject {
         }
     }
 
+    /// When false, the view that owns the visible lesson step speaks each
+    /// step itself (the active-lesson layout does this so the voice, the
+    /// caption, and the transport controls all follow the step on screen).
+    /// The legacy layouts keep the per-component narration below.
+    var narratesRevealedComponents: Bool = true
+
     /// Speaks a component if voice mode is on and the content is spoken-style
     /// prose (backend teacher messages can carry JSON director turns — those
     /// are skipped rather than read aloud).
     private func narrateIfEnabled(_ component: SDUIComponent) {
-        guard voiceModeEnabled,
+        guard narratesRevealedComponents,
+            voiceModeEnabled,
             component.type == .teacherMessage,
             !component.content.isEmpty
         else { return }

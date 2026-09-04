@@ -33,6 +33,25 @@ struct ActiveLessonView: View {
     var onMic: () -> Void = {}
     var onTools: () -> Void = {}
 
+    /// Live word progress for the line being spoken. When it belongs to the
+    /// step on screen, the dialogue card reveals words in step with the
+    /// audio; otherwise the card shows the full text.
+    var captionProgress: SpokenLineProgress? = nil
+    /// True while narration is actually playing (drives the Skip control).
+    var isNarrating: Bool = false
+    /// True while the backend is generating the next scene.
+    var waitingForScene: Bool = false
+    /// True while the scene still has components the lesson has not
+    /// revealed yet, so the last visible step is not really the last.
+    var hasQueuedSteps: Bool = false
+    /// Language of the current scene, used for transport labels.
+    var languageCode: String? = nil
+    /// Fired whenever a step becomes the one on screen — the parent owns
+    /// narration, so this is what makes the voice follow the visible step.
+    var onStepShown: (LessonStep) -> Void = { _ in }
+    /// Learner tapped Skip while narration was playing.
+    var onSkipNarration: () -> Void = {}
+
     // MARK: - Models
 
     struct HeaderModel {
@@ -104,6 +123,9 @@ struct ActiveLessonView: View {
     @State private var showSwipeNudge = false
     @State private var shakeOffset: CGFloat = 0.0
     @State private var isBoardTappedToComplete = false
+    // The learner asked to move past the last visible step while more were
+    // still queued: advance as soon as the next one is revealed.
+    @State private var advanceWhenNextStepArrives = false
 
     // Netflix/YouTube-style chrome auto-hide — mirrors the web classroom's
     // `chromeVisible`/`resetHideTimer` (see web/src/app/(main)/classroom/page.tsx).
@@ -184,6 +206,33 @@ struct ActiveLessonView: View {
             return promptResponses[step.id] != nil
         }
         return true
+    }
+
+    private var transport: ClassroomTransportState {
+        ClassroomTransportState(
+            currentIndex: currentIndex,
+            stepCount: steps.count,
+            isNarrating: isNarrating,
+            requiresInteraction: requiresInteraction,
+            interactionCompleted: isInteractionCompleted,
+            waitingForScene: waitingForScene,
+            hasQueuedSteps: hasQueuedSteps
+        )
+    }
+
+    /// Words of the current step's line that the voice has reached, or
+    /// `nil` when the caption should simply show everything (voice off,
+    /// line finished, or progress belongs to a different step).
+    private func revealedWordCount(for step: LessonStep) -> Int? {
+        guard let progress = captionProgress,
+              progress.lineId == step.id,
+              !progress.finished
+        else { return nil }
+        let total = SpokenCaptionTiming.words(in: step.teachingText).count
+        return SpokenCaptionTiming.revealedWordCount(
+            fraction: progress.revealedFraction,
+            totalWords: total
+        )
     }
 
     private var teacherIndex: Int {
@@ -318,7 +367,8 @@ struct ActiveLessonView: View {
                             speakerName: step.speakerName == "Teacher" ? actualTeacherName : step.speakerName,
                             speakerBadge: step.speakerBadge,
                             text: step.teachingText,
-                            speakerImageName: step.speakerImageName ?? "lyo_teacher_\(teacherIndex)"
+                            speakerImageName: step.speakerImageName ?? "lyo_teacher_\(teacherIndex)",
+                            revealedWordCount: revealedWordCount(for: step)
                         )
                         .padding(.horizontal, ClassroomTokens.pagePadding)
 
@@ -340,7 +390,25 @@ struct ActiveLessonView: View {
                     Spacer()
                 }
 
-                // Scene dots & Swipe indicator — chrome, auto-hides
+                // Transport rail — permanent. Previous / Skip / Next /
+                // Continue are derived from the real lesson state (see
+                // ClassroomTransportState), so the learner always has a
+                // visible way forward and back instead of a hidden swipe.
+                if !steps.isEmpty {
+                    transportRail
+                        .padding(.horizontal, ClassroomTokens.pagePadding)
+                        .padding(.top, 6)
+                }
+
+                if showSwipeNudge {
+                    Text("Choose an answer to continue")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.red.opacity(0.85))
+                        .transition(.opacity.combined(with: .scale))
+                        .padding(.top, 6)
+                }
+
+                // Scene dots — chrome, auto-hides
                 if chromeVisible {
                     HStack(spacing: 6) {
                         ForEach(0..<steps.count, id: \.self) { idx in
@@ -352,20 +420,6 @@ struct ActiveLessonView: View {
                     }
                     .padding(.vertical, 8)
                     .transition(.opacity)
-
-                    if showSwipeNudge {
-                        Text("Choose an answer to continue")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.red.opacity(0.85))
-                            .transition(.opacity.combined(with: .scale))
-                            .padding(.bottom, 4)
-                    } else {
-                        Text("Swipe left to continue")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(ClassroomTokens.textTertiary)
-                            .padding(.bottom, 4)
-                            .transition(.opacity)
-                    }
 
                     // ZONE 5: Bottom Dock (Sleek Lens Toolbar) — chrome, auto-hides
                     LyoLensDock(
@@ -388,8 +442,22 @@ struct ActiveLessonView: View {
         }
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
-        .onAppear { resetChromeTimer() }
+        .onAppear {
+            resetChromeTimer()
+            if let step = currentStep { onStepShown(step) }
+        }
+        .onChange(of: currentStep?.id) { _, _ in
+            if let step = currentStep { onStepShown(step) }
+        }
         .onChange(of: currentIndex) { _, _ in resetChromeTimer() }
+        .onChange(of: steps.count) { _, count in
+            guard advanceWhenNextStepArrives, currentIndex < count - 1 else { return }
+            advanceWhenNextStepArrives = false
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                currentIndex += 1
+                isBoardTappedToComplete = false
+            }
+        }
         .onChange(of: quizSelections) { _, _ in resetChromeTimer() }
         .onChange(of: promptResponses) { _, _ in resetChromeTimer() }
         .gesture(
@@ -428,6 +496,129 @@ struct ActiveLessonView: View {
         }
     }
 
+    // MARK: - Transport Rail
+
+    private var transportRail: some View {
+        let state = transport
+        return HStack(spacing: 8) {
+            Group {
+                if state.canGoPrevious {
+                    transportButton(
+                        title: ClassroomTransportState.previousLabel(languageCode: languageCode),
+                        systemImage: "chevron.left",
+                        imageLeading: true,
+                        emphasized: false,
+                        accessibilityHint: "Go back to the previous lesson step"
+                    ) {
+                        goToPreviousScene()
+                        resetChromeTimer()
+                    }
+                }
+            }
+            .frame(width: 112, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            Text(state.positionLabel)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(1.2)
+                .foregroundStyle(ClassroomTokens.textTertiary)
+                .accessibilityLabel("Step \(state.positionLabel.replacingOccurrences(of: "/", with: " of "))")
+
+            Spacer(minLength: 0)
+
+            Group {
+                switch state.forward {
+                case .skip:
+                    transportButton(
+                        title: ClassroomTransportState.skipLabel(languageCode: languageCode),
+                        systemImage: "forward.fill",
+                        imageLeading: false,
+                        emphasized: false,
+                        accessibilityHint: "Skip the explanation currently playing"
+                    ) {
+                        onSkipNarration()
+                        resetChromeTimer()
+                    }
+                case .next:
+                    transportButton(
+                        title: ClassroomTransportState.nextLabel(languageCode: languageCode),
+                        systemImage: "chevron.right",
+                        imageLeading: false,
+                        emphasized: false,
+                        accessibilityHint: "Go to the next lesson step"
+                    ) {
+                        goToNextScene()
+                        resetChromeTimer()
+                    }
+                case .continue:
+                    transportButton(
+                        title: ClassroomTransportState.continueLabel(languageCode: languageCode),
+                        systemImage: "chevron.right",
+                        imageLeading: false,
+                        emphasized: true,
+                        accessibilityHint: "Continue the lesson"
+                    ) {
+                        goToNextScene()
+                        resetChromeTimer()
+                    }
+                case .waiting:
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(ClassroomTokens.accent)
+                        Text(ClassroomTransportState.waitingLabel(languageCode: languageCode))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ClassroomTokens.textTertiary)
+                    }
+                case .none:
+                    EmptyView()
+                }
+            }
+            .frame(width: 112, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.04), in: Capsule())
+        .overlay(Capsule().stroke(ClassroomTokens.glassBorder, lineWidth: 1))
+        .animation(.easeOut(duration: 0.2), value: state)
+    }
+
+    private func transportButton(
+        title: String,
+        systemImage: String,
+        imageLeading: Bool,
+        emphasized: Bool,
+        accessibilityHint: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if imageLeading {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .bold))
+                }
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                if !imageLeading {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .bold))
+                }
+            }
+            .foregroundStyle(emphasized ? ClassroomTokens.accent : Color.white.opacity(0.72))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                (emphasized ? ClassroomTokens.accent.opacity(0.14) : Color.white.opacity(0.05)),
+                in: Capsule()
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint(accessibilityHint)
+    }
+
     // MARK: - Navigation Gestures
 
     private func goToNextScene() {
@@ -448,7 +639,10 @@ struct ActiveLessonView: View {
                 currentIndex += 1
                 isBoardTappedToComplete = false
             } else {
-                // Last step in the current scene: notify the backend to load the next scene!
+                // Last visible step: the parent either reveals the next
+                // queued component (then we move to it as it lands) or asks
+                // the backend for the next scene.
+                advanceWhenNextStepArrives = hasQueuedSteps
                 onAdvance(step)
             }
         }
@@ -1005,6 +1199,32 @@ struct ClassroomDialogueCard: View {
     let speakerBadge: String
     let text: String
     let speakerImageName: String
+    /// When set, only this many leading words read as "spoken"; the rest of
+    /// the line stays dimmed until the voice reaches it. `nil` shows the
+    /// whole line at full strength.
+    var revealedWordCount: Int? = nil
+
+    /// The line as a single `Text`, with words the voice has not reached
+    /// yet dimmed. Keeping every word in the layout means the card never
+    /// jumps in height while narration plays.
+    private var captionText: Text {
+        guard let revealedWordCount else {
+            return Text(text).foregroundStyle(ClassroomTokens.textSecondary)
+        }
+        let words = SpokenCaptionTiming.words(in: text)
+        guard !words.isEmpty else {
+            return Text(text).foregroundStyle(ClassroomTokens.textSecondary)
+        }
+        let splitAt = max(0, min(revealedWordCount, words.count))
+        let spoken = words[..<splitAt].joined(separator: " ")
+        let pending = words[splitAt...].joined(separator: " ")
+        var composed = Text(spoken).foregroundStyle(ClassroomTokens.textSecondary)
+        if !pending.isEmpty {
+            let separator = spoken.isEmpty ? "" : " "
+            composed = composed + Text(separator + pending).foregroundStyle(ClassroomTokens.textPrimary.opacity(0.28))
+        }
+        return composed
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1028,11 +1248,12 @@ struct ClassroomDialogueCard: View {
                 Spacer()
             }
 
-            Text(text)
+            captionText
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(ClassroomTokens.textSecondary)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
+                .animation(.linear(duration: 0.08), value: revealedWordCount)
+                .accessibilityLabel(text)
         }
         .padding(14)
         .classroomGlassCard()

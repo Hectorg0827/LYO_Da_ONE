@@ -3,15 +3,39 @@ import AVFoundation
 import NaturalLanguage
 import os
 
+/// Live position inside the caption line that is being spoken right now.
+///
+/// Published by `TextToSpeechService` so a classroom caption can reveal
+/// words in step with the audio that is actually playing, instead of
+/// showing the whole line the moment the text arrives (neural TTS has to
+/// round-trip the network first, so text used to run well ahead of voice).
+struct SpokenLineProgress: Equatable {
+    /// Caller-supplied identifier for the line (for example a lesson step id).
+    let lineId: String
+    /// 0...1 share of the line's words that have actually been voiced.
+    let revealedFraction: Double
+    /// True once audio has really begun playing.
+    let started: Bool
+    /// True once the line ended, failed, or was skipped by the learner.
+    let finished: Bool
+}
+
 @MainActor
 class TextToSpeechService: NSObject, ObservableObject {
     static let shared = TextToSpeechService()
 
     @Published var isSpeaking: Bool = false
+    /// Word-level progress for the line currently being spoken. `nil` when
+    /// nothing tagged with a `lineId` is playing.
+    @Published private(set) var lineProgress: SpokenLineProgress?
     var onSpeechFinished: (() -> Void)?
 
     private let repository: TTSRepository = DefaultTTSRepository()
-    private var speechQueue: [(text: String, language: String)] = []
+    private var speechQueue: [(text: String, language: String, lineId: String?)] = []
+    private var activeLine: (lineId: String, text: String)?
+    private var lineWordStarts: [Double] = []
+    private var lineDuration: Double = -1
+    private var timeObservation: (player: AVPlayer, token: Any)?
     private var playbackTask: Task<Void, Never>?
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
@@ -23,6 +47,7 @@ class TextToSpeechService: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        deviceFallbackSynthesizer.delegate = self
 
         do {
             try configureAudioSession(active: false)
@@ -51,16 +76,18 @@ class TextToSpeechService: NSObject, ObservableObject {
         }
     }
 
-    func speak(text: String, language: String = "auto") {
+    /// Speaks `text` after cutting off anything already playing. Pass a
+    /// `lineId` to receive word-level `lineProgress` for this line.
+    func speak(text: String, language: String = "auto", lineId: String? = nil) {
         stop()
-        enqueue(text, language: language)
+        enqueue(text, language: language, lineId: lineId)
     }
 
-    func enqueue(_ text: String, language: String = "auto") {
+    func enqueue(_ text: String, language: String = "auto", lineId: String? = nil) {
         let cleanText = prepareSpeechText(text)
         guard !cleanText.isEmpty else { return }
 
-        speechQueue.append((cleanText, language))
+        speechQueue.append((cleanText, language, lineId))
         startPlaybackIfNeeded()
     }
 
@@ -71,6 +98,9 @@ class TextToSpeechService: NSObject, ObservableObject {
         cancelActivePlayback()
         deviceFallbackSynthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
+        // A skipped line reads as fully spoken: the caption fills in rather
+        // than freezing mid-sentence.
+        finishActiveLine()
 
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
@@ -88,13 +118,17 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 
     private func processQueue() async {
-        defer { playbackTask = nil }
+        // A cancelled run must not tear down the run that replaced it:
+        // `stop()` followed by `speak()` (Skip, Next) starts a new task
+        // before this one has finished unwinding.
+        defer { if !Task.isCancelled { playbackTask = nil } }
 
         while !Task.isCancelled {
             guard !speechQueue.isEmpty else { break }
 
             let item = speechQueue.removeFirst()
             isSpeaking = true
+            beginLine(id: item.lineId, text: item.text)
 
             do {
                 try await playGeneratedSpeech(for: item.text, language: item.language)
@@ -112,9 +146,11 @@ class TextToSpeechService: NSObject, ObservableObject {
                     Log.audio.error("Localized device TTS fallback failed: \(error)")
                 }
             }
+            finishActiveLine()
         }
 
-        let finishedNaturally = !Task.isCancelled && speechQueue.isEmpty
+        guard !Task.isCancelled else { return }
+        let finishedNaturally = speechQueue.isEmpty
         isSpeaking = false
         cleanupPlayer()
 
@@ -155,6 +191,7 @@ class TextToSpeechService: NSObject, ObservableObject {
 
         self.playerItem = item
         self.player = player
+        observePlaybackClock(of: player, item: item)
 
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
@@ -221,6 +258,7 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 
     private func cancelActivePlayback() {
+        removePlaybackClockObserver()
         player?.pause()
         player = nil
         playerItem = nil
@@ -235,6 +273,7 @@ class TextToSpeechService: NSObject, ObservableObject {
     }
 
     private func cleanupPlayer(keepSessionActive: Bool = false) {
+        removePlaybackClockObserver()
         player?.pause()
         player = nil
         playerItem = nil
@@ -264,6 +303,103 @@ class TextToSpeechService: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Caption progress
+
+    private func beginLine(id: String?, text: String) {
+        lineWordStarts = []
+        lineDuration = -1
+        guard let id else {
+            activeLine = nil
+            lineProgress = nil
+            return
+        }
+        activeLine = (id, text)
+        lineProgress = SpokenLineProgress(lineId: id, revealedFraction: 0, started: false, finished: false)
+    }
+
+    private func finishActiveLine() {
+        guard let line = activeLine else { return }
+        activeLine = nil
+        lineWordStarts = []
+        lineDuration = -1
+        lineProgress = SpokenLineProgress(lineId: line.lineId, revealedFraction: 1, started: true, finished: true)
+    }
+
+    private func publishLineProgress(fraction: Double, started: Bool) {
+        guard let line = activeLine else { return }
+        let next = SpokenLineProgress(
+            lineId: line.lineId,
+            revealedFraction: max(0, min(1, fraction)),
+            started: started,
+            finished: false
+        )
+        if next != lineProgress { lineProgress = next }
+    }
+
+    /// Neural voice path: follow the media clock of the generated MP3 so
+    /// network latency can never let the caption run ahead of the voice.
+    private func observePlaybackClock(of player: AVPlayer, item: AVPlayerItem) {
+        removePlaybackClockObserver()
+        guard activeLine != nil else { return }
+        let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
+        let token = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self, weak player, weak item] time in
+            Task { @MainActor [weak self] in
+                guard let self, let player, let item else { return }
+                let reported = item.duration.seconds
+                self.playbackClockTicked(
+                    currentTime: time.seconds,
+                    reportedDuration: reported,
+                    isPlaying: player.rate > 0
+                )
+            }
+        }
+        timeObservation = (player, token)
+    }
+
+    private func removePlaybackClockObserver() {
+        if let timeObservation {
+            timeObservation.player.removeTimeObserver(timeObservation.token)
+            self.timeObservation = nil
+        }
+    }
+
+    private func playbackClockTicked(currentTime: Double, reportedDuration: Double, isPlaying: Bool) {
+        guard let line = activeLine, currentTime.isFinite else { return }
+        let duration = reportedDuration.isFinite && reportedDuration > 0
+            ? reportedDuration
+            : SpokenCaptionTiming.estimatedSpeechSeconds(text: line.text, rate: currentSpeed)
+        if abs(duration - lineDuration) > 0.02 {
+            lineWordStarts = SpokenCaptionTiming.wordStartTimes(text: line.text, durationSeconds: duration)
+            lineDuration = duration
+        }
+        let started = isPlaying || currentTime > 0
+        guard started else {
+            publishLineProgress(fraction: 0, started: false)
+            return
+        }
+        let totalWords = lineWordStarts.count
+        let revealed = SpokenCaptionTiming.revealCount(starts: lineWordStarts, currentTime: currentTime)
+        let fraction = totalWords > 0 ? Double(revealed) / Double(totalWords) : 1
+        publishLineProgress(fraction: fraction, started: true)
+    }
+
+    /// Device voice path: real word-boundary callbacks from the synthesizer.
+    private func deviceSpeechReached(characterRange: NSRange, in spokenText: String) {
+        guard let line = activeLine, line.text == spokenText else { return }
+        let utf16Length = spokenText.utf16.count
+        let end = min(utf16Length, characterRange.location + max(characterRange.length, 1))
+        let prefix = (spokenText as NSString).substring(to: max(0, end))
+        let totalWords = SpokenCaptionTiming.words(in: spokenText).count
+        let revealed = max(1, SpokenCaptionTiming.words(in: prefix).count)
+        let fraction = totalWords > 0 ? Double(revealed) / Double(totalWords) : 1
+        publishLineProgress(fraction: fraction, started: true)
+    }
+
+    private func deviceSpeechStarted(_ spokenText: String) {
+        guard let line = activeLine, line.text == spokenText else { return }
+        publishLineProgress(fraction: lineProgress?.revealedFraction ?? 0, started: true)
+    }
+
     private func prepareSpeechText(_ raw: String) -> String {
         var clean = raw
         clean = clean.replacingOccurrences(of: #"```[\s\S]*?```"#, with: "", options: .regularExpression)
@@ -279,5 +415,23 @@ class TextToSpeechService: NSObject, ObservableObject {
         clean = clean.replacingOccurrences(of: #"\n+"#, with: " ", options: .regularExpression)
         clean = clean.replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
         return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - AVSpeechSynthesizerDelegate
+
+extension TextToSpeechService: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let spokenText = utterance.speechString
+        Task { @MainActor in
+            deviceSpeechStarted(spokenText)
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
+        let spokenText = utterance.speechString
+        Task { @MainActor in
+            deviceSpeechReached(characterRange: characterRange, in: spokenText)
+        }
     }
 }

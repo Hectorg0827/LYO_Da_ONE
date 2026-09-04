@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,10 +17,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.VolumeOff
@@ -36,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -45,10 +52,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -94,6 +108,14 @@ internal data class ClassroomApplication(
     val actionIntent: String,
 )
 
+/** A finished teaching beat the learner can step back to. */
+internal data class ClassroomBoardSnapshot(
+    val teacherText: String,
+    val boardTitle: String,
+    val boardContent: String,
+    val peerText: String?,
+)
+
 internal data class AndroidClassroomState(
     val connected: Boolean = false,
     val waiting: Boolean = true,
@@ -110,7 +132,34 @@ internal data class AndroidClassroomState(
     val progressTotal: Int = 1,
     val voiceEnabled: Boolean = true,
     val error: String? = null,
-)
+    /** True from the moment the teacher line is sent to the voice until it ends or is skipped. */
+    val narrating: Boolean = false,
+    /** 0..1 share of [teacherText] the voice has reached; null shows the whole line. */
+    val captionFraction: Float? = null,
+    /** Earlier boards from this session, oldest first. */
+    val history: List<ClassroomBoardSnapshot> = emptyList(),
+    /** Index into [history] while browsing back; -1 means the live board. */
+    val viewingIndex: Int = -1,
+) {
+    val transport: ClassroomTransport
+        get() = ClassroomTransport.derive(
+            connected = connected,
+            waiting = waiting,
+            narrating = narrating,
+            checkpointPending = checkpoint != null || application != null,
+            hasLessonContent = teacherText.isNotBlank() || boardContent.isNotBlank(),
+            hasContinueCta = continueLabel != null,
+            historyCount = history.size,
+            viewingIndex = viewingIndex,
+        )
+
+    /** The board on screen: a history snapshot while browsing back, else the live one. */
+    val shownBoard: ClassroomBoardSnapshot
+        get() = history.getOrNull(viewingIndex)
+            ?: ClassroomBoardSnapshot(teacherText, boardTitle, boardContent, peerText)
+
+    val viewingHistory: Boolean get() = history.getOrNull(viewingIndex) != null
+}
 
 internal class AndroidClassroomController(
     context: Context,
@@ -120,9 +169,48 @@ internal class AndroidClassroomController(
         private set
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val voice = ClassroomVoicePlayer(context)
+    private val voice = ClassroomVoicePlayer(context).also { player ->
+        player.onProgress = ::handleVoiceProgress
+    }
     private var socket: WebSocket? = null
     private var seenComponents = mutableSetOf<String>()
+
+    /**
+     * The caption follows the voice: while a line is being generated or
+     * spoken, only the words the audio has reached read as spoken. Once it
+     * ends (or the learner skips it) the whole line shows.
+     */
+    private fun handleVoiceProgress(progress: VoiceProgress?) {
+        val live = progress != null && !progress.finished && progress.text == state.teacherText
+        state = state.copy(
+            narrating = live,
+            captionFraction = if (live) progress?.revealedFraction else null,
+        )
+    }
+
+    /** Cuts the current narration short; the caption fills in immediately. */
+    fun skipNarration() {
+        voice.stop()
+    }
+
+    /** Step back through earlier boards. */
+    fun viewPrevious() {
+        val transport = state.transport
+        if (!transport.canGoPrevious) return
+        val target = if (state.viewingIndex < 0) state.history.size - 1 else state.viewingIndex - 1
+        state = state.copy(viewingIndex = target)
+    }
+
+    /** The single forward control: Skip, Next, Live, or Continue depending on real state. */
+    fun viewForward() {
+        when (state.transport.forward) {
+            ForwardAction.SKIP -> skipNarration()
+            ForwardAction.NEXT -> state = state.copy(viewingIndex = state.viewingIndex + 1)
+            ForwardAction.LIVE -> state = state.copy(viewingIndex = -1)
+            ForwardAction.CONTINUE -> continueLesson()
+            ForwardAction.NONE -> Unit
+        }
+    }
 
     fun connect(topic: String) {
         val token = TokenManager.accessToken
@@ -215,6 +303,9 @@ internal class AndroidClassroomController(
     }
 
     fun continueLesson() {
+        // Continue is a real classroom action even when the scene came
+        // without a CTAButton — the backend treats `continue` as canonical.
+        if (!state.transport.readyToContinue) return
         val intent = state.continueIntent
         beginLearnerInput()
         if (sendAction(intent, "android_continue")) awaitServerScene()
@@ -339,6 +430,10 @@ internal class AndroidClassroomController(
     private fun beginScene() {
         voice.stop()
         seenComponents = mutableSetOf()
+        // Keep the finished beat so Previous can bring it back, and jump to
+        // live: a new scene is always the board the learner should be on.
+        val finished = state.takeIf { it.teacherText.isNotBlank() || it.boardContent.isNotBlank() }
+            ?.let { ClassroomBoardSnapshot(it.teacherText, it.boardTitle, it.boardContent, it.peerText) }
         state = state.copy(
             waiting = true,
             teacherText = "",
@@ -349,6 +444,10 @@ internal class AndroidClassroomController(
             application = null,
             continueLabel = null,
             error = null,
+            narrating = false,
+            captionFraction = null,
+            history = if (finished != null) state.history + finished else state.history,
+            viewingIndex = -1,
         )
     }
 
@@ -368,6 +467,8 @@ internal class AndroidClassroomController(
                     teacherText = text,
                     languageCode = language,
                     waiting = false,
+                    narrating = false,
+                    captionFraction = null,
                 )
                 if (state.voiceEnabled) voice.play(text, language)
             }
@@ -567,6 +668,10 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
             )
         },
     ) { padding ->
+        val transport = state.transport
+        val board = state.shownBoard
+        val viewingHistory = state.viewingHistory
+
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
@@ -586,7 +691,30 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                 )
             }
 
-            if (state.teacherText.isNotBlank()) {
+            // Transport rail: Previous / position / Skip · Next · Live ·
+            // Continue, derived from the real lesson state so the learner
+            // always has a visible way forward and back.
+            item {
+                ClassroomTransportRow(
+                    transport = transport,
+                    continueLabel = state.continueLabel,
+                    isSpanish = isSpanish,
+                    onPrevious = controller::viewPrevious,
+                    onForward = controller::viewForward,
+                )
+            }
+
+            if (viewingHistory) {
+                item {
+                    Text(
+                        if (isSpanish) "Viendo una pizarra anterior" else "Viewing an earlier board",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                    )
+                }
+            }
+
+            if (board.teacherText.isNotBlank()) {
                 item {
                     GlassCard {
                         Column(Modifier.padding(18.dp)) {
@@ -596,17 +724,16 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                                 color = LyoPurple,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text(
-                                state.teacherText,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = TextPrimary,
+                            SpokenCaptionText(
+                                text = board.teacherText,
+                                revealedFraction = if (viewingHistory) null else state.captionFraction,
                             )
                         }
                     }
                 }
             }
 
-            if (state.boardContent.isNotBlank()) {
+            if (board.boardContent.isNotBlank()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -615,17 +742,17 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                             .padding(18.dp),
                     ) {
                         Text(
-                            state.boardTitle,
+                            board.boardTitle,
                             style = MaterialTheme.typography.titleMedium,
                             color = LyoPurple,
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text(state.boardContent, color = TextPrimary)
+                        Text(board.boardContent, color = TextPrimary)
                     }
                 }
             }
 
-            state.peerText?.let { peerText ->
+            board.peerText?.let { peerText ->
                 item {
                     Text(
                         peerText,
@@ -635,7 +762,7 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                 }
             }
 
-            state.checkpoint?.let { checkpoint ->
+            state.checkpoint?.takeUnless { viewingHistory }?.let { checkpoint ->
                 item {
                     GlassCard {
                         Column(Modifier.padding(18.dp)) {
@@ -679,7 +806,7 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                 }
             }
 
-            state.application?.let { application ->
+            state.application?.takeUnless { viewingHistory }?.let { application ->
                 item {
                     val wordCount = applicationResponse
                         .trim()
@@ -759,19 +886,34 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
                 }
             }
 
-            state.continueLabel?.let { label ->
+            // Continue appears once narration has finished and nothing is
+            // waiting on the learner — with or without a server CTAButton.
+            if (transport.readyToContinue) {
                 item {
+                    val primary = if (isSpanish) "Continuar" else "Continue"
+                    val secondary = state.continueLabel
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() && !it.equals(primary, ignoreCase = true) }
                     Button(
                         onClick = controller::continueLesson,
                         colors = ButtonDefaults.buttonColors(containerColor = LyoPurple),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(label)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(primary, fontWeight = FontWeight.SemiBold)
+                            if (secondary != null) {
+                                Text(
+                                    secondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextPrimary.copy(alpha = 0.7f),
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            if (state.waiting) {
+            if (state.waiting && !viewingHistory) {
                 item {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -849,6 +991,130 @@ fun ClassroomScreen(nav: NavHostController, courseId: String) {
             }
         }
     }
+}
+
+/**
+ * Previous / position / forward rail. Only controls that are real right
+ * now are rendered: no inert placeholders.
+ */
+@Composable
+private fun ClassroomTransportRow(
+    transport: ClassroomTransport,
+    continueLabel: String?,
+    isSpanish: Boolean,
+    onPrevious: () -> Unit,
+    onForward: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Surface.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Box(Modifier.width(112.dp), contentAlignment = Alignment.CenterStart) {
+            if (transport.canGoPrevious) {
+                TextButton(onClick = onPrevious) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        if (isSpanish) "Anterior" else "Previous",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+        }
+
+        Text(
+            transport.positionLabel.uppercase(),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            letterSpacing = 1.2.sp,
+            color = TextSecondary.copy(alpha = 0.7f),
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+        )
+
+        Box(Modifier.width(112.dp), contentAlignment = Alignment.CenterEnd) {
+            when (transport.forward) {
+                ForwardAction.SKIP -> TextButton(onClick = onForward) {
+                    Text(
+                        if (isSpanish) "Saltar" else "Skip",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Icon(
+                        Icons.Filled.FastForward,
+                        contentDescription = if (isSpanish) "Saltar la explicación" else "Skip the explanation currently playing",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                ForwardAction.NEXT, ForwardAction.LIVE -> TextButton(onClick = onForward) {
+                    Text(
+                        when (transport.forward) {
+                            ForwardAction.LIVE -> if (isSpanish) "En vivo" else "Live"
+                            else -> if (isSpanish) "Siguiente" else "Next"
+                        },
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                ForwardAction.CONTINUE -> TextButton(onClick = onForward) {
+                    Text(
+                        continueLabel?.takeIf { it.isNotBlank() }
+                            ?: if (isSpanish) "Continuar" else "Continue",
+                        color = LyoPurple,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = LyoPurple,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                ForwardAction.NONE -> Unit
+            }
+        }
+    }
+}
+
+/**
+ * The teacher line with the words the voice has not reached yet dimmed.
+ * Every word stays in the layout so the card never jumps while speaking.
+ */
+@Composable
+private fun SpokenCaptionText(text: String, revealedFraction: Float?) {
+    if (revealedFraction == null) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+        return
+    }
+    val words = SpokenCaptionTiming.words(text)
+    val revealed = SpokenCaptionTiming.revealedWordCount(revealedFraction, words.size)
+    val annotated = buildAnnotatedString {
+        words.forEachIndexed { index, word ->
+            if (index > 0) append(' ')
+            if (index < revealed) {
+                append(word)
+            } else {
+                withStyle(SpanStyle(color = TextPrimary.copy(alpha = 0.28f))) { append(word) }
+            }
+        }
+    }
+    Text(annotated, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
 }
 
 private fun JsonObject.stringOrNull(key: String): String? =

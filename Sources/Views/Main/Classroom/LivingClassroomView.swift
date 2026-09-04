@@ -201,6 +201,9 @@ struct LivingClassroomView: View {
 
     @State private var narrationWork: DispatchWorkItem? = nil
     @State private var continueFallbackTask: Task<Void, Never>? = nil
+    // Active-lesson narration follows the step on screen. Each step is read
+    // aloud once; stepping back through history never re-reads it.
+    @State private var narratedStepIds: Set<String> = []
 
     // Sprint 3 — minimalist 4-zone shell (Stage / Pulse / ActionBar / Drawer).
     // Default ON; persisted so power users who flip to expert mode keep it.
@@ -316,6 +319,11 @@ struct LivingClassroomView: View {
         .statusBar(hidden: true)
         .persistentSystemOverlays(.hidden) // Hide home indicator — Netflix/YouTube-style full-bleed classroom
         .task {
+            // In the active-lesson layout the view speaks the visible step
+            // (see narrateStep), so the service must not also read every
+            // component as it reveals — that is what let the voice run
+            // ahead of the card the learner was looking at.
+            service.narratesRevealedComponents = !activeLessonMode
             service.connect(
                 sessionId: courseId,
                 courseId: courseId,
@@ -356,6 +364,13 @@ struct LivingClassroomView: View {
         }
         .onChange(of: service.sceneRevision) { _, _ in
             continueFallbackTask?.cancel()
+        }
+        .onChange(of: service.renderedComponents.isEmpty) { _, isEmpty in
+            // A new server scene clears the board; its steps are fresh lines.
+            if isEmpty { narratedStepIds.removeAll() }
+        }
+        .onChange(of: activeLessonMode) { _, isActive in
+            service.narratesRevealedComponents = !isActive
         }
         .onReceive(NotificationCenter.default.publisher(for: .classroomAdvance)) { _ in
             // Sprint 5 — minimalist Continue button posts .classroomAdvance.
@@ -468,9 +483,40 @@ struct LivingClassroomView: View {
             onBack: { dismiss() },
             onMenu: { withAnimation { showDrawer.toggle() } },
             onMic: { openAskOverlay(for: nil) },
-            onTools: { withAnimation { showDrawer.toggle() } }
+            onTools: { withAnimation { showDrawer.toggle() } },
+            captionProgress: tts.lineProgress,
+            isNarrating: tts.isSpeaking,
+            waitingForScene: service.isGenerating,
+            hasQueuedSteps: service.hasQueuedComponents,
+            languageCode: sceneLanguageCode,
+            onStepShown: { step in narrateStep(step) },
+            onSkipNarration: {
+                service.bargeIn()
+                LyoAnalyticsManager.shared.trackEvent(
+                    "classroom_narration_skipped",
+                    parameters: ["courseId": courseId])
+            }
         )
         .id(service.sceneRevision)
+    }
+
+    /// Language the current scene is being taught in, from the most recent
+    /// teacher line; falls back to auto-detection.
+    private var sceneLanguageCode: String? {
+        service.renderedComponents.last(where: { $0.languageCode != nil })?.languageCode
+    }
+
+    /// Reads the step that just came on screen aloud, tagged with the step
+    /// id so `TextToSpeechService.lineProgress` can drive the caption on the
+    /// dialogue card word by word. The learner's own lines are never voiced.
+    private func narrateStep(_ step: ActiveLessonView.LessonStep) {
+        guard service.voiceModeEnabled else { return }
+        guard step.speakerName != "You" else { return }
+        guard !narratedStepIds.contains(step.id) else { return }
+        narratedStepIds.insert(step.id)
+        let trimmed = step.teachingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("["), !trimmed.hasPrefix("{") else { return }
+        tts.speak(text: trimmed, language: sceneLanguageCode ?? "auto", lineId: step.id)
     }
 
     private func lessonSubtitle(stepCount: Int) -> String {
@@ -498,11 +544,15 @@ struct LivingClassroomView: View {
                         result[item.key] = item.value
                     }
 
-                    service.sendUserAction(
+                    let sent = service.sendUserAction(
                         actionIntent: queuedCTA.actionIntent ?? step.primaryActionIntent ?? "continue",
                         componentId: queuedCTA.id,
                         actionData: queuedActionData
                     )
+                    if sent {
+                        service.isGenerating = true
+                        service.statusText = "Preparing the next part…"
+                    }
                     scheduleContinueFallback(from: service.sceneRevision)
                     return
                 }
@@ -517,11 +567,17 @@ struct LivingClassroomView: View {
 
             // Ask the backend for the next scene using the scene-provided CTA
             // metadata when available.
-            service.sendUserAction(
+            let sent = service.sendUserAction(
                 actionIntent: step.primaryActionIntent ?? "continue",
                 componentId: step.primaryActionComponentId ?? "classroom_continue",
                 actionData: actionData
             )
+            if sent {
+                // The transport rail reads this as "waiting for the scene"
+                // so Continue cannot be fired twice while the server works.
+                service.isGenerating = true
+                service.statusText = "Preparing the next part…"
+            }
             scheduleContinueFallback(from: service.sceneRevision)
         }
         // Non-last advances are handled inside ActiveLessonView local state.
@@ -539,6 +595,10 @@ struct LivingClassroomView: View {
                 Log.classroom.warning(
                     "Classroom live continuation still pending; suppressing local fallback while WebSocket is connected"
                 )
+                // Give the transport rail its Continue back so the learner
+                // can retry instead of staring at "Preparing…" forever.
+                service.isGenerating = false
+                service.statusText = nil
                 LyoAnalyticsManager.shared.trackEvent(
                     "classroom_live_continuation_pending",
                     parameters: [
@@ -2574,7 +2634,12 @@ struct LivingClassroomView: View {
         if last.type == .teacherMessage {
             let agent = agentForComponent(last)
             lyoSpeaking = agent.id == "prof"
-            showNarration(text: last.content, agent: agent)
+            // Active-lesson mode: the dialogue card is the caption and it
+            // follows the voice. A second floating copy of the same line
+            // (or of the raw director script) only crowded the card.
+            if !activeLessonMode {
+                showNarration(text: last.content, agent: agent)
+            }
             HapticManager.shared.playMessageReceived()
 
             // Auto-stop speaking after delay
