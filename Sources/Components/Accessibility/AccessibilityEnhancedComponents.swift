@@ -746,7 +746,7 @@ struct AccessibleLyoAskButton: View {
         }
         .padding([.bottom, .trailing], 12)
         .accessibilityLabel("Ask Lyo about \(clip.title)")
-        .accessibilityHint("Double tap to ask Lyo AI about this video content")
+        .accessibilityHint("Double tap to ask LYO about this video content")
         .accessibilityAddTraits([.isButton])
     }
 }

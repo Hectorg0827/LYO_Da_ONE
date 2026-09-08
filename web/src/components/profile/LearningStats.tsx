@@ -1,43 +1,34 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Clock, BookOpen, Flame, CheckCircle, Trophy, Star, Target, Zap, Lock } from 'lucide-react';
+import { Clock, BookOpen, Flame, CheckCircle } from 'lucide-react';
 import { LearningStats } from '@/types';
-import { cn } from '@/lib/utils';
 
 interface LearningStatsProps {
   stats: LearningStats;
 }
 
-// ── Mock calendar data (28 days, 4 rows x 7 cols) ───────────────────────────
-
-function generateCalendarData() {
-  return Array.from({ length: 28 }, (_, i) => ({
-    day: i,
-    level: Math.floor(Math.random() * 5), // 0=none, 1=low, 2=med, 3=high, 4=max
-  }));
-}
-
-const calendarData = generateCalendarData();
-
-const activityColors = [
-  'rgba(255,255,255,0.06)', // none
-  'rgba(99,102,241,0.25)',  // low
-  'rgba(99,102,241,0.45)',  // medium
-  'rgba(99,102,241,0.7)',   // high
-  '#6366f1',                // max
-];
-
-// ── Achievements mock ────────────────────────────────────────────────────────
-
-const achievements = [
-  { id: '1', label: 'First Step', icon: '🎯', unlocked: true },
-  { id: '2', label: 'Week Warrior', icon: '🔥', unlocked: true },
-  { id: '3', label: 'Quiz Master', icon: '🧠', unlocked: true },
-  { id: '4', label: 'Speed Learner', icon: '⚡', unlocked: false },
-  { id: '5', label: 'Social Butterfly', icon: '🦋', unlocked: false },
-  { id: '6', label: 'Course Creator', icon: '✨', unlocked: false },
-];
+/**
+ * Learning stats panel.
+ *
+ * Everything rendered here is sourced from `stats`, which the profile pages
+ * build from the real gamification + course endpoints. This component
+ * deliberately owns no sample, seeded or generated data of its own: a panel
+ * that invents the learner's history is worse than a panel that admits it
+ * has none yet.
+ *
+ * Two blocks were removed for that reason and should not come back without a
+ * real endpoint behind them:
+ *
+ *  - a 28-day "Activity Calendar" whose squares came from `Math.random()`,
+ *    presented to the learner as their own study history;
+ *  - a "Recent Achievements" grid with hard-coded badges and three
+ *    arbitrarily marked unlocked. Real achievements already render from
+ *    `api.gamification.achievements()` under the profile's Achievements tab,
+ *    so this was both fabricated and a duplicate.
+ *
+ * See docs/CLASSROOM_ARCHITECTURE.md section 5.
+ */
 
 // ── Animation ────────────────────────────────────────────────────────────────
 
@@ -86,7 +77,8 @@ function StatCard({
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export default function LearningStatsPanel({ stats }: LearningStatsProps) {
-  const maxTopicHours = Math.max(...stats.topTopics.map((t) => t.hours), 1);
+  const topTopics = stats.topTopics ?? [];
+  const maxTopicHours = Math.max(...topTopics.map((t) => t.hours), 1);
 
   return (
     <motion.div
@@ -127,101 +119,37 @@ export default function LearningStatsPanel({ stats }: LearningStatsProps) {
         />
       </div>
 
-      {/* Streak Calendar */}
-      <motion.div variants={itemVariants} className="glass-card p-5">
-        <h3 className="text-sm font-bold text-primary mb-1">Activity Calendar</h3>
-        <p className="text-xs text-secondary mb-4">Last 28 days</p>
-        <div className="grid grid-cols-7 gap-1.5">
-          {calendarData.map((day) => (
-            <div
-              key={day.day}
-              className="aspect-square rounded-md transition-all duration-200 hover:scale-110 cursor-pointer"
-              style={{ background: activityColors[day.level] }}
-              title={`Day ${day.day + 1}: Level ${day.level}`}
-            />
-          ))}
-        </div>
-        <div className="flex items-center gap-2 mt-3 justify-end">
-          <span className="text-[10px] text-secondary">Less</span>
-          {activityColors.map((color, i) => (
-            <div
-              key={i}
-              className="w-3 h-3 rounded-sm"
-              style={{ background: color }}
-            />
-          ))}
-          <span className="text-[10px] text-secondary">More</span>
-        </div>
-      </motion.div>
-
-      {/* Top Topics — Bar Chart */}
-      <motion.div variants={itemVariants} className="glass-card p-5">
-        <h3 className="text-sm font-bold text-primary mb-4">Top Topics</h3>
-        <div className="space-y-3">
-          {stats.topTopics.map((topic, i) => {
-            const pct = Math.round((topic.hours / maxTopicHours) * 100);
-            const colors = ['#6366f1', '#22c55e', '#f59e0b', '#3b82f6', '#ec4899'];
-            const color = colors[i % colors.length];
-            return (
-              <div key={topic.topic} className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-primary">{topic.topic}</span>
-                  <span className="text-secondary">{topic.hours}h</span>
+      {/* Top Topics — only when the learner actually has tracked topics.
+          An empty chart frame taught nobody anything. */}
+      {topTopics.length > 0 && (
+        <motion.div variants={itemVariants} className="glass-card p-5">
+          <h3 className="text-sm font-bold text-primary mb-4">Top Topics</h3>
+          <div className="space-y-3">
+            {topTopics.map((topic, i) => {
+              const pct = Math.round((topic.hours / maxTopicHours) * 100);
+              const colors = ['#6366f1', '#22c55e', '#f59e0b', '#3b82f6', '#ec4899'];
+              const color = colors[i % colors.length];
+              return (
+                <div key={topic.topic} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-primary">{topic.topic}</span>
+                    <span className="text-secondary">{topic.hours}h</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ background: color }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut', delay: i * 0.1 }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: color }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${pct}%` }}
-                    transition={{ duration: 0.8, ease: 'easeOut', delay: i * 0.1 }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </motion.div>
-
-      {/* Recent Achievements */}
-      <motion.div variants={itemVariants} className="glass-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-primary">Recent Achievements</h3>
-          <button className="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1">
-            <Trophy size={12} /> View all
-          </button>
-        </div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-          {achievements.map((ach) => (
-            <div
-              key={ach.id}
-              className={cn(
-                'flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-200',
-                ach.unlocked ? 'hover:scale-105 cursor-pointer' : 'opacity-40 cursor-not-allowed'
-              )}
-              style={{
-                background: ach.unlocked ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.04)',
-                border: ach.unlocked ? '1px solid rgba(99,102,241,0.25)' : '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-xl relative"
-                style={
-                  ach.unlocked
-                    ? { background: 'linear-gradient(135deg, #6366f1, #a78bfa)' }
-                    : { background: 'rgba(255,255,255,0.08)' }
-                }
-              >
-                {ach.unlocked ? ach.icon : <Lock size={14} className="text-white/40" />}
-              </div>
-              <span className="text-[10px] text-center font-medium leading-tight"
-                style={{ color: ach.unlocked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                {ach.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }

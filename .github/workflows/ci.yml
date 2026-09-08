@@ -46,6 +46,9 @@ jobs:
       - name: Verify AI Classroom interaction and voice parity
         run: node scripts/verify-classroom-parity.mjs
 
+      - name: Verify product trust (no fabricated learner data, front door, brand)
+        run: node scripts/verify-product-trust.mjs
+
       - name: Verify Android navigation and Create workflows
         run: node scripts/verify-android-product-navigation.mjs
 
@@ -204,6 +207,10 @@ jobs:
       - name: Classroom contract tests
         working-directory: web
         run: npm run test:classroom
+
+      - name: Classroom entry contract tests
+        working-directory: web
+        run: npm run test:entry
 
       - name: Typecheck
         working-directory: web

@@ -97,7 +97,7 @@ struct EmptyStateView: View {
     EmptyStateView(
         iconName: "book.closed",
         title: "No Courses Yet",
-        message: "You haven't generated or saved any learning paths. Ask Lyo AI to create your first course!",
+        message: "You haven't generated or saved any learning paths. Ask LYO to create your first course!",
         actionTitle: "Generate Course"
     ) {
         print("Action tapped")

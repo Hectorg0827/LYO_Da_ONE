@@ -471,7 +471,7 @@ fun ChatScreen(nav: NavHostController) {
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text("Lyo AI", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Text("LYO", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
             TextButton(
                 enabled = !isStreaming && !uploadingAttachment,
                 onClick = {
@@ -495,7 +495,7 @@ fun ChatScreen(nav: NavHostController) {
                     .padding(horizontal = 24.dp),
             ) {
                 Text(
-                    text = "Lyo AI",
+                    text = "LYO",
                     style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary,
                 )

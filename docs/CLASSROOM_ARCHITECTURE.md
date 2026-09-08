@@ -1,0 +1,276 @@
+# LYO — Living AI Classroom Architecture Audit
+
+Status: living document. Written before Phase A, updated as each phase lands.
+
+This is an audit of what **actually exists today** across the four LYO
+codebases, mapped onto the canonical learning loop. It exists so that we
+converge on the strongest system already in the repos instead of adding an
+n+1'th mastery engine.
+
+Repos covered:
+
+| Repo | Contents | Write access from this workstream |
+| --- | --- | --- |
+| `Hectorg0827/Lyo_Da_One` | Web (Next.js), iOS (SwiftUI), Android (Compose), parity scripts | yes |
+| `Hectorg0827/LyoBackendJune` | FastAPI backend (`lyo_app/`) | read-only |
+
+Because the backend is read-only from here, backend rows below are recorded
+as **contract decisions** the clients code against, not as edits already made.
+
+---
+
+## 1. The canonical loop
+
+```
+USER INTENT
+   -> LYO router / entry flow
+   -> LIVING AI CLASSROOM
+   -> CLASSROOM DIRECTOR          (chooses the pedagogical move)
+   -> SCENE / TEACHING MOVE       (LLM fills content inside the move)
+   -> LIVE LEARNING SURFACE       (board + voice + captions)
+   -> LEARNER ACTION
+   -> LEARNING EVENT
+   -> EVIDENCE                    (exposure..retention, graded server-side)
+   -> CANONICAL LEARNER MODEL
+   -> MASTERY + RETENTION + MISCONCEPTIONS
+   -> NEXT BEST PEDAGOGICAL ACTION
+   -> CLASSROOM DIRECTOR
+```
+
+Every subsystem below is classified against this loop as one of:
+
+- **CANONICAL** — the one true implementation; everything else adapts to it.
+- **ADAPTER** — translates a legacy shape into the canonical one.
+- **MIGRATION_ONLY** — retained solely so existing rows/users keep working.
+- **LEGACY_ACTIVE** — still on a live code path; needs an adapter before removal.
+- **SAFE_TO_REMOVE** — no imports, no routes, no tests, no platform depends on it.
+
+---
+
+## 2. Backend inventory (`lyo_app/`)
+
+The backend contains **four** overlapping learning-state systems. This is the
+single largest source of incoherence in the product.
+
+| Module | Models | Classification | Notes |
+| --- | --- | --- | --- |
+| `lyo_app/ai_classroom/models.py` | `GraphCourse`, `LearningNode`, `LearningEdge`, `Concept`, `Misconception`, `MasteryState`, `ReviewSchedule`, `InteractionAttempt`, `CourseProgress` | **CANONICAL** | Richest model. Concept-graph based, has misconceptions, SM-2 review schedule, per-attempt history. This is the intended learner brain. |
+| `lyo_app/personalization/models.py` | `LearnerState`, `LearnerMastery`, `AffectSample`, `SpacedRepetitionSchedule`, `MemoryInsight` | **LEGACY_ACTIVE** | Duplicates mastery and spaced repetition. `AffectSample` / `MemoryInsight` have no equivalent in `ai_classroom` and are worth folding in rather than dropping. |
+| `lyo_app/events/models.py` | `LearningEvent` (52 lines) | **CANONICAL (thin)** | Correct concept, under-built. Should become the single write path into mastery. |
+| `lyo_app/classroom/models.py` | `ClassroomSession`, `ClassroomInteraction` | **CANONICAL (session layer)** | Session/transport concern, not a competing learner model. Keep. |
+
+### 2.1 What `MasteryState` is missing
+
+`ai_classroom.MasteryState` today carries `mastery_score`, `confidence`,
+`attempts`, `correct_count`, `incorrect_count`, `error_pattern`,
+`misconception_tags`, `last_seen`, `last_correct`, `trend`.
+
+It does **not** carry the evidence ladder. To satisfy the mastery standard it
+needs:
+
+- `evidence_level` — the highest rung reached (see §3)
+- `retention_strength` — distinct from `confidence`; decays with time
+- `last_demonstrated_at` — distinct from `last_seen` (exposure is not evidence)
+- `next_review_at` — denormalised from `ReviewSchedule` for cheap Home reads
+
+Until the backend adds these, clients derive `evidence_level` from the
+event stream and treat it as advisory, never authoritative.
+
+### 2.2 Convergence plan (backend, when writable)
+
+1. `events.LearningEvent` becomes the **only** write path to mastery. Nothing
+   else may mutate `MasteryState` directly.
+2. `personalization.LearnerMastery` gets a read-through **ADAPTER** onto
+   `ai_classroom.MasteryState`, then becomes MIGRATION_ONLY.
+3. `personalization.SpacedRepetitionSchedule` folds into
+   `ai_classroom.ReviewSchedule` (both are SM-2; the latter is more complete).
+4. `AffectSample` and `MemoryInsight` move under the canonical learner model
+   as signals the Director reads.
+
+---
+
+## 3. The evidence ladder
+
+Mastery is never granted for watching, pressing Continue, spending time, or
+receiving an explanation. It is granted for demonstrated evidence:
+
+```
+NOT_SEEN -> EXPOSED -> RECOGNIZED -> EXPLAINED -> APPLIED -> TRANSFERRED -> RETAINED -> MASTERED
+```
+
+| Rung | Earned by | Strength |
+| --- | --- | --- |
+| `exposure` | Instruction was delivered | none on its own |
+| `recognition` | Correct selection in context | weak |
+| `explanation` | Learner explains it acceptably | moderate |
+| `application` | Correct use on a familiar problem | strong |
+| `transfer` | Correct use in a novel context | strongest single form |
+| `retention` | Correct retrieval after a real interval | confirms durability |
+
+`MASTERED` requires high-confidence evidence across **application + transfer +
+retention**, not a high score on any one of them.
+
+Hints reduce the confidence attached to a rung; they never demote the rung and
+asking for help is never scored as failure. A skipped question is neutral: it
+produces no evidence in either direction.
+
+---
+
+## 4. Cross-platform client inventory
+
+### 4.1 Shared contract (already exists — keep and extend)
+
+`web/src/lib/classroom-contract.mjs` is the **CANONICAL** wire contract and is
+already mirrored by the iOS and Android clients and enforced by
+`scripts/verify-classroom-parity.mjs`.
+
+It pins: classroom modes (`solo` / `classroom` / `challenge` / `review`), the
+hint ladder (`nudge` / `principle` / `worked_step` / `full_example` /
+`prerequisite`), `client_contract_version: '2'`, course/lesson/session
+identity, locale, and reduced-motion.
+
+This is the right shape. Phase B extends it with the learner-model contract
+rather than introducing a second one.
+
+### 4.2 Web
+
+| Path | Role | Classification |
+| --- | --- | --- |
+| `web/src/lib/classroom-contract.mjs` | Wire contract | **CANONICAL** |
+| `web/src/stores/classroom-store.ts` | Classroom session state, WS transport, board state | **CANONICAL** |
+| `web/src/app/(main)/classroom/page.tsx` | Live classroom surface | **CANONICAL** |
+| `web/src/components/classroom/*` | Board elements, explorable, caption sync, flow controls | **CANONICAL** |
+| `web/src/stores/chat-store.ts` | Chat + `dueReviews` + server-graded answer checks | **LEGACY_ACTIVE** — owns spaced repetition that belongs to the learner model |
+| `web/src/lib/learning-progress.ts` | Lesson completion / course progress | **ADAPTER** onto backend `CourseProgress` |
+| `web/src/components/profile/LearningStats.tsx` | Profile stats | **SAFE_TO_REMOVE (fabricated parts)** — see §5 |
+
+### 4.3 iOS (`Sources/`)
+
+| Path | Role | Classification |
+| --- | --- | --- |
+| `Services/LivingClassroomService.swift` | WS transport, barge-in, locale | **CANONICAL** |
+| `Views/Main/Classroom/LivingClassroomView.swift` | Live classroom surface | **CANONICAL** |
+| `Views/Classroom/ActiveLessonView.swift` | Lesson rendering, offline-safe skip | **CANONICAL** |
+| `Models/SDUIModels.swift` | Server-driven component catalog | **CANONICAL** |
+| `Services/LivingClassroomEngine.swift` | On-device teaching engine | **SAFE_TO_REMOVE** — parity gate already rejects `LivingClassroomEngine()`; a client-side teaching engine makes iOS a pedagogically different product |
+| `ViewModels/ClassroomViewModel.swift`, `Models/Classroom.swift` | Older classroom path | **LEGACY_ACTIVE** — parity gate pins its authored-quick-check contract |
+| `ViewModels/AgenticClassroomViewModel.swift`, `Views/Main/Classroom/AgenticClassroomView.swift` | Third classroom path | **LEGACY_ACTIVE** — needs a usage check before removal |
+| `Services/LyoClassroomService.swift` | Fourth classroom service | **LEGACY_ACTIVE** — needs a usage check |
+
+iOS carries **four** classroom entry points. Consolidating them onto
+`LivingClassroomService` is Phase C work.
+
+### 4.4 Android (`android/app/src/main/java/com/lyo/app/`)
+
+| Path | Role | Classification |
+| --- | --- | --- |
+| `ui/screens/classroom/ClassroomScreen.kt` | Live classroom surface + WS | **CANONICAL** |
+| `ui/screens/classroom/ClassroomVoicePlayer.kt` | Voice + barge-in | **CANONICAL** |
+| `ui/classroom/catalog/*` | Board element catalog (Latex, Mermaid, Code, Chart, Quiz, TransferInput, ...) | **CANONICAL** |
+
+Android is the cleanest of the three clients: one classroom, one catalog.
+
+---
+
+## 5. Fabricated learner data (Phase A target)
+
+Production UI must never present invented activity as the learner's own.
+Found in the web client:
+
+| Location | Problem |
+| --- | --- |
+| `web/src/app/(main)/page.tsx` | `dailyChallenges` is a hard-coded array with invented `progress` values (`1/2` lessons, `7/10` minutes) rendered as this user's real challenge progress |
+| `web/src/components/profile/LearningStats.tsx` | `generateCalendarData()` builds a 28-day activity heatmap from `Math.random()` and renders it as the learner's study history |
+| `web/src/components/profile/LearningStats.tsx` | `achievements` is a hard-coded list with three arbitrarily marked `unlocked: true` |
+| `web/src/app/(main)/page.tsx` | Zero-dashboard: a brand-new user is shown Level 1 / 0 XP / 0 hours / 0 courses rather than a reason to start |
+
+Fix posture: real API data where an endpoint exists
+(`api.gamification.achievements()`, `api.chat.dueReviews()`), an intentional
+empty state where it does not, and no component at all where neither is
+meaningful.
+
+---
+
+## 6. Spaced repetition is real but trapped
+
+`api.chat.dueReviews()` -> `/api/v1/lyo2/chat/reviews/due` returns
+`{ skill_id, days_overdue, mastery_level, last_misconception }` and is already
+wired through `chat-store.ts` into `DueReviewsNudge.tsx`.
+
+It correctly generates a **fresh** retrieval question rather than replaying the
+old one.
+
+The problem is scope: it is visible only inside Chat. Due reviews are a
+property of the learner, not of a surface. They belong on Home, in Review mode,
+and in exam readiness. Surfacing them on Home is Phase A; routing them into
+Classroom Review mode is Phase C.
+
+---
+
+## 7. Phase plan against this audit
+
+| Phase | Scope | Depends on backend writes |
+| --- | --- | --- |
+| **A — Product trust** | Remove fabricated data; new front door; surface due reviews on Home; unify branding; guest can reach Classroom | no |
+| **B — Canonical learner intelligence** | Client-side canonical learner-model contract + adapters; Chat/Classroom/Test Prep read one state | partially |
+| **C — Classroom core** | Collapse iOS's four classroom paths; Director owns move selection; Review mode | no |
+| **D — Signature board** | Representation selection per subject; explorables emit evidence | no |
+| **E — Test prep integration** | Diagnostic -> canonical mastery -> readiness -> classroom sessions | yes |
+| **F — Product graph** | Home recommendations, Learning Around Me, Clips loop | no |
+
+---
+
+## 8. Phase A — what landed
+
+| Change | Where |
+| --- | --- |
+| Hard-coded `dailyChallenges` removed from Home | `web/src/app/(main)/page.tsx` |
+| `Math.random()` activity calendar and mock achievements removed | `web/src/components/profile/LearningStats.tsx` |
+| Empty "Top Topics" chart frame no longer drawn | `web/src/components/profile/LearningStats.tsx` |
+| Zero dashboard gated behind real activity | `web/src/app/(main)/page.tsx` (`showLearnerDashboard`) |
+| Front door: "What do you want to learn?", Enter Classroom, I have a test | `web/src/components/home/FrontDoor.tsx` |
+| Due reviews surfaced on Home, routed into Classroom review mode | `web/src/components/home/NextForYou.tsx` |
+| Shared entry contract for opening the Classroom from any surface | `web/src/lib/entry-contract.mjs` |
+| Chat accepts a seeded opening turn (`?prompt=`) | `web/src/components/chat/ChatInterface.tsx` |
+| Brand converged on LYO across web, iOS and Android | layout metadata, PWA manifest, nav, chat, `Info.plist` |
+| Product-trust CI gate | `scripts/verify-product-trust.mjs` |
+
+### Why "I have a test" opens Chat
+
+Test Prep is a real backend intent (`TEST_PREP` in `lyo_app/ai/router.py`),
+resolved from what the learner says. The entry therefore says it and lets the
+router ask for subject, date and materials. Standing a client-side test-prep
+wizard in front of that would be a mock of a flow that already exists.
+
+The full Test Prep product surface — diagnostic, exam readiness, study plan —
+is Phase E and needs backend writes this workstream does not have.
+
+### Known follow-ups
+
+- `project.yml` still names the Xcode project `Lyo`. That is the build
+  identifier, not the consumer-visible app name (`CFBundleDisplayName` is now
+  `LYO`); renaming it moves the `.xcodeproj` and is not worth bundling into a
+  product-trust change.
+- `Sources/Services/A2A/AgentCardService.swift` reports the organization as
+  "Lyo AI". Machine-facing agent-card metadata, left alone deliberately.
+- Home still leads with XP and streak for an established learner. Section 22
+  wants concepts learned / mastered / retained in that position; that depends
+  on the canonical learner model and is Phase B.
+
+---
+
+## 9. Invariants the parity gate enforces
+
+`scripts/verify-classroom-parity.mjs` is the CI guard that keeps Web, iOS and
+Android from becoming pedagogically different products. It already pins shared
+voice endpoint, locale flow, learner interruption, offline-safe skip, neutral
+skip, hint requests, course identity and contract version.
+
+`scripts/verify-product-trust.mjs` joins it as a second gate, pinning the
+Phase A invariants: no fabricated learner stats on Home or the stats panel, a
+front door whose CTAs reach real runtime paths, due reviews entering Classroom
+review mode without a stored question, and one consumer brand.
+
+Both gates assert against code with comments stripped, so a file may document
+the fabricated block it replaced without tripping the gate that documentation
+exists to explain.

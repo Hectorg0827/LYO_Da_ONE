@@ -1,5 +1,5 @@
 // ============================================================
-// LYO Da ONE — Shared TypeScript Types (mirrors iOS models)
+// LYO — Shared TypeScript Types (mirrors iOS models)
 // ============================================================
 
 // ---- Auth & User ----

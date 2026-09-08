@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:classroom": "node --test src/lib/classroom-contract.test.mjs"
+    "test:classroom": "node --test src/lib/classroom-contract.test.mjs",
+    "test:entry": "node --test src/lib/entry-contract.test.mjs",
+    "test": "node --test src/lib/*.test.mjs"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.22",

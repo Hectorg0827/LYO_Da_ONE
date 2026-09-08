@@ -25,7 +25,7 @@ import { useAuthStore } from '@/stores/auth-store';
    ============================================================ */
 const navItems = [
   { href: '/', icon: Home, label: 'Home' },
-  { href: '/chat', icon: MessageSquare, label: 'LYO AI', isAI: true },
+  { href: '/chat', icon: MessageSquare, label: 'LYO', isAI: true },
   { href: '/courses', icon: BookOpen, label: 'My Courses' },
   { href: '/clips', icon: Play, label: 'Clips' },
   { href: '/community', icon: Users, label: 'Community' },

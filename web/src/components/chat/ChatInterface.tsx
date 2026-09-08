@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore, type GenerationActivity } from '@/stores/chat-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -180,10 +181,14 @@ export default function ChatInterface() {
     generationActivity,
     hydrate,
     fetchDueReviews,
+    sendMessage,
   } = useChatStore();
   const conversation = getActiveConversation();
   const messages = conversation?.messages ?? [];
   const bottomRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
+  const seededPrompt = searchParams.get('prompt');
+  const seededOnce = useRef(false);
 
   useEffect(() => {
     hydrate();
@@ -191,6 +196,24 @@ export default function ChatInterface() {
     // still due an hour into the session isn't suddenly less due.
     fetchDueReviews();
   }, [hydrate, fetchDueReviews]);
+
+  /**
+   * `?prompt=` lets another surface hand Chat an opening turn.
+   *
+   * Home's "I have a test" entry uses it: Test Prep is a real backend intent
+   * (TEST_PREP in lyo_app/ai/router.py) reached by what the learner says, so
+   * the honest way to open that flow is to actually say it and let the router
+   * ask for subject, date and materials. No parallel client-side test-prep
+   * mock sits in front of it.
+   *
+   * Guarded by a ref rather than by message count so a re-render (or a reply
+   * arriving) can never re-send it.
+   */
+  useEffect(() => {
+    if (!seededPrompt || seededOnce.current) return;
+    seededOnce.current = true;
+    void sendMessage(seededPrompt);
+  }, [seededPrompt, sendMessage]);
 
   // Auto-scroll when messages change or while generating
 

@@ -15,7 +15,6 @@ import {
   Heart,
   MessageCircle,
   Trophy,
-  Target,
   TrendingUp,
   Layers,
   Share,
@@ -28,41 +27,8 @@ import { useApi } from '@/hooks/use-api';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { listCourseStacks, postCourseToCommunity, courseShareUrl } from '@/lib/stack';
-
-// ── Daily challenges (TODO: wire to gamification challenges when endpoint available) ──
-
-const dailyChallenges = [
-  {
-    id: '1',
-    title: 'Complete 2 Lessons',
-    description: 'Finish any 2 lessons in your active courses',
-    xpReward: 150,
-    progress: 1,
-    requirement: 2,
-    icon: BookOpen,
-    color: '#6366f1',
-  },
-  {
-    id: '2',
-    title: '10-Minute Learning Sprint',
-    description: 'Study for 10 uninterrupted minutes',
-    xpReward: 100,
-    progress: 7,
-    requirement: 10,
-    icon: Clock,
-    color: '#3b82f6',
-  },
-  {
-    id: '3',
-    title: 'Quiz Master',
-    description: 'Score 80% or higher on a quiz',
-    xpReward: 200,
-    progress: 0,
-    requirement: 1,
-    icon: Target,
-    color: '#f59e0b',
-  },
-];
+import NextForYou from '@/components/home/NextForYou';
+import FrontDoor from '@/components/home/FrontDoor';
 
 // Color palette for dynamically mapped courses
 const courseColors = ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#3b82f6'];
@@ -305,7 +271,7 @@ function ShareOrPostMenu({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [mounted, setMounted] = useState(false);
 
   const { data: gamification } = useApi(() => api.gamification.overview(), []);
@@ -388,6 +354,28 @@ export default function HomePage() {
     timeLeft: '',
   }));
 
+  /**
+   * Is there anything real to report about this learner yet?
+   *
+   * A signed-out visitor never has activity. A signed-in learner who has not
+   * started anything has none either, and showing them Level 1 / 0 XP /
+   * 0 hours / 0 courses is a dashboard of their own nothing — it asks them to
+   * admire an empty account before the product has given them anything.
+   *
+   * When there is no activity we skip the greeting, the hero card and the
+   * stats grid entirely and lead with the front door instead. Nothing here
+   * invents a number to fill the space.
+   */
+  const hasRealActivity =
+    stackCourses.length > 0 ||
+    ((xpSummary?.total as number) || user?.xp || 0) > 0 ||
+    ((achievementsData?.completed as number) || user?.coursesCompleted || 0) > 0 ||
+    currentStreak > 0;
+
+  // While auth is still resolving, assume the known-learner layout so a
+  // signed-in learner never sees the guest door flash on top of their work.
+  const showLearnerDashboard = authLoading || (isAuthenticated && hasRealActivity);
+
   // Map API courses to recommended format
   const recommendedCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({
     id: String(c.id ?? i),
@@ -435,6 +423,14 @@ export default function HomePage() {
       initial="hidden"
       animate={mounted ? 'visible' : 'hidden'}
     >
+      {/* ── Front door — the question the product exists to answer.
+          Shown to everyone so the Classroom and "I have a test" entries are
+          always one action away; it leads the page for a learner with no
+          activity yet, and sits under Continue Learning for one who has. */}
+      <FrontDoor knownLearner={showLearnerDashboard} />
+
+      {showLearnerDashboard && (
+        <>
       {/* ── Greeting (matches iOS FocusView greetingSection) ──── */}
       <motion.div variants={itemVariants}>
         <p className="font-rounded text-sm font-medium text-white/75">{getGreeting()}</p>
@@ -543,6 +539,9 @@ export default function HomePage() {
         })()}
       </motion.div>
 
+        </>
+      )}
+
       {/* ── Quick Actions ─────────────────────────────────────── */}
       <motion.div variants={itemVariants}>
         <SectionHeader title="Quick Actions" icon={Sparkles} />
@@ -638,7 +637,8 @@ export default function HomePage() {
         )}
       </motion.div>
 
-      {/* ── Learning Stats ────────────────────────────────────── */}
+      {/* ── Learning Stats — only once there is something to count ─ */}
+      {showLearnerDashboard && (
       <motion.div variants={itemVariants}>
         <SectionHeader title="Your Stats" icon={TrendingUp} />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -665,55 +665,13 @@ export default function HomePage() {
         </div>
       </motion.div>
 
-      {/* ── Daily Challenges ──────────────────────────────────── */}
-      <motion.div variants={itemVariants}>
-        <SectionHeader title="Daily Challenges" href="/challenges" icon={Target} />
-        <div className="space-y-3">
-          {dailyChallenges.map((challenge) => {
-            const Icon = challenge.icon;
-            const pct = Math.round((challenge.progress / challenge.requirement) * 100);
-            const isDone = challenge.progress >= challenge.requirement;
+      )}
 
-            return (
-              <div
-                key={challenge.id}
-                className={cn(
-                  'glass-card p-4 flex items-center gap-4 transition-all duration-200',
-                  isDone && 'opacity-70'
-                )}
-              >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: `${challenge.color}20`, border: `1px solid ${challenge.color}25` }}
-                >
-                  <Icon size={20} style={{ color: challenge.color }} />
-                </div>
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-primary truncate">{challenge.title}</p>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0"
-                      style={{
-                        backgroundColor: `${challenge.color}20`,
-                        color: challenge.color,
-                      }}
-                    >
-                      +{challenge.xpReward} XP
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-secondary truncate">{challenge.description}</p>
-                  <div className="flex items-center gap-2">
-                    <ProgressBar value={pct} color={challenge.color} height={3} />
-                    <span className="text-[10px] text-secondary shrink-0 w-16 text-right">
-                      {isDone ? '✓ Done' : `${challenge.progress}/${challenge.requirement}`}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </motion.div>
+      {/* ── What LYO recommends next ──────────────────────────────
+          Driven by the learner's real spaced-repetition schedule. Renders
+          nothing when nothing is due. This replaced a hard-coded
+          "Daily Challenges" list with invented progress values. */}
+      <NextForYou />
 
       {/* ── Recommended For You ───────────────────────────────── */}
       <motion.div variants={itemVariants}>

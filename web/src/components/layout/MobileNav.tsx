@@ -78,7 +78,7 @@ export function MobileNav() {
       >
         <Link
           href="/chat"
-          aria-label="LYO AI"
+          aria-label="LYO"
           className="relative flex items-center justify-center pointer-events-auto"
         >
           <span className="absolute w-28 h-28 rounded-full mascot-fab-glow pointer-events-none" />
@@ -124,7 +124,7 @@ export function MobileNav() {
             on tap (shared layoutId). */}
         <Link
           href="/chat"
-          aria-label="LYO AI"
+          aria-label="LYO"
           aria-current={isChat ? 'page' : undefined}
           className="relative flex items-center justify-center -mt-10"
         >
