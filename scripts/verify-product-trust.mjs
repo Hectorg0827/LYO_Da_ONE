@@ -103,7 +103,12 @@ requireText(entryContract, 'have a test', 'Test-prep entry keeps its intent phra
 
 // Home must actually mount it, or the CTAs above are unreachable.
 requireText(home, '<FrontDoor', 'Home mounts the front door');
-requireText(home, 'showLearnerDashboard', 'Home gates the zero dashboard');
+requireText(home, 'shouldShowLearnerDashboard', 'Home gates the zero dashboard');
+// The gate must not treat "auth still loading" as "known learner": isLoading
+// starts true, so that renders the zero dashboard to a signed-out visitor for
+// the length of the auth request — the very thing the front door replaces.
+rejectPattern(home, /authLoading\s*\|\|/, 'Home shows the dashboard while auth is unresolved');
+rejectPattern(entryContract, /authLoading\s*\|\|/, 'Dashboard gate trusts an unresolved auth state');
 
 // The seeded opening turn is what makes "I have a test" reach the backend's
 // TEST_PREP intent rather than a client-side mock of it.

@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { listCourseStacks, postCourseToCommunity, courseShareUrl } from '@/lib/stack';
 import NextForYou from '@/components/home/NextForYou';
 import FrontDoor from '@/components/home/FrontDoor';
+import { shouldShowLearnerDashboard } from '@/lib/entry-contract.mjs';
 
 // Color palette for dynamically mapped courses
 const courseColors = ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#3b82f6'];
@@ -372,9 +373,11 @@ export default function HomePage() {
     ((achievementsData?.completed as number) || user?.coursesCompleted || 0) > 0 ||
     currentStreak > 0;
 
-  // While auth is still resolving, assume the known-learner layout so a
-  // signed-in learner never sees the guest door flash on top of their work.
-  const showLearnerDashboard = authLoading || (isAuthenticated && hasRealActivity);
+  const showLearnerDashboard = shouldShowLearnerDashboard({
+    authLoading,
+    isAuthenticated,
+    hasRealActivity,
+  });
 
   // Map API courses to recommended format
   const recommendedCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({

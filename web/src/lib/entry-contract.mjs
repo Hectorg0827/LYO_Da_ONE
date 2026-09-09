@@ -74,3 +74,28 @@ export function reviewEntryHref(conceptLabel) {
 export function testPrepEntryHref() {
   return `/chat?prompt=${encodeURIComponent(TEST_PREP_OPENING_TURN)}`;
 }
+
+/**
+ * Does Home show the learner dashboard (greeting, hero card, stats grid), or
+ * lead with the front door alone?
+ *
+ * The subtle case is the one before auth resolves. `isLoading` starts true, so
+ * treating "still loading" as "known learner" renders Level 1 / 0 XP /
+ * 0 courses to a signed-out visitor for as long as the auth request takes —
+ * which is precisely the zero dashboard the front door exists to replace, just
+ * briefer. Withholding it instead costs a signed-in learner a moment before
+ * their own work appears. That is a progressive load, not a false claim about
+ * them, so it is the right way to be wrong while we do not yet know who is
+ * looking.
+ *
+ * The front door itself renders either way, so nobody is left with an empty
+ * screen while this resolves.
+ */
+export function shouldShowLearnerDashboard({
+  authLoading,
+  isAuthenticated,
+  hasRealActivity,
+} = {}) {
+  if (authLoading) return false;
+  return Boolean(isAuthenticated && hasRealActivity);
+}

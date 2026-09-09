@@ -14,3 +14,9 @@ export function defaultObjective(topic: string): string;
 export function classroomEntryHref(entry: ClassroomEntry): string | null;
 export function reviewEntryHref(conceptLabel: string): string | null;
 export function testPrepEntryHref(): string;
+
+export function shouldShowLearnerDashboard(state: {
+  authLoading?: boolean;
+  isAuthenticated?: boolean;
+  hasRealActivity?: boolean;
+}): boolean;

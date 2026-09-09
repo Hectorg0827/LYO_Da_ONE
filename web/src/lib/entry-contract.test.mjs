@@ -4,6 +4,7 @@ import {
   TEST_PREP_OPENING_TURN,
   classroomEntryHref,
   reviewEntryHref,
+  shouldShowLearnerDashboard,
   testPrepEntryHref,
 } from './entry-contract.mjs';
 
@@ -83,4 +84,51 @@ test('"I have a test" reaches the real test-prep intent by saying so', () => {
   // The router matches on "have a test"; losing that phrasing silently
   // downgrades the entry to a generic explanation.
   assert.match(TEST_PREP_OPENING_TURN, /have a test/i);
+});
+
+// ─── Front door vs learner dashboard ─────────────────────────────────────────
+
+test('a signed-out visitor never sees the dashboard, even mid-hydration', () => {
+  // The regression this guards: isLoading starts true, so treating "still
+  // loading" as "known learner" rendered Level 1 / 0 XP / 0 courses to a
+  // guest for as long as the auth request took — the zero dashboard the front
+  // door exists to replace, just briefer.
+  assert.equal(
+    shouldShowLearnerDashboard({ authLoading: true, isAuthenticated: false, hasRealActivity: false }),
+    false,
+  );
+  assert.equal(
+    shouldShowLearnerDashboard({ authLoading: false, isAuthenticated: false, hasRealActivity: false }),
+    false,
+  );
+});
+
+test('the dashboard waits for auth even when activity is already known', () => {
+  // Cached activity must not let the dashboard render before we know who is
+  // looking at it.
+  assert.equal(
+    shouldShowLearnerDashboard({ authLoading: true, isAuthenticated: true, hasRealActivity: true }),
+    false,
+  );
+});
+
+test('a signed-in learner with real activity gets their dashboard', () => {
+  assert.equal(
+    shouldShowLearnerDashboard({ authLoading: false, isAuthenticated: true, hasRealActivity: true }),
+    true,
+  );
+});
+
+test('a signed-in learner with nothing yet still gets the front door', () => {
+  // Signed in is not the same as having something to show. An account with no
+  // activity is exactly who the front door is for.
+  assert.equal(
+    shouldShowLearnerDashboard({ authLoading: false, isAuthenticated: true, hasRealActivity: false }),
+    false,
+  );
+});
+
+test('missing state is treated as nothing known, not as a learner', () => {
+  assert.equal(shouldShowLearnerDashboard({}), false);
+  assert.equal(shouldShowLearnerDashboard(), false);
 });
