@@ -1,4 +1,5 @@
 import { ApiError, clearTokens, getAccessToken } from '@/lib/api';
+import { masteryPercent } from '@/lib/learner-model.mjs';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.lyoai.app';
 
@@ -72,7 +73,16 @@ export async function getCourseProgress(courseId: string): Promise<CourseProgres
   );
 }
 
+/**
+ * Course progress as a 0..100 integer.
+ *
+ * The 0..1-or-0..100 ambiguity this resolves is not specific to course
+ * progress — the same question arises for every mastery number the backend
+ * sends — so the rule lives once in the canonical learner model and this is
+ * the course-progress name for it. A missing or unreadable value is 0% here
+ * because a course the learner has not started is genuinely 0% complete,
+ * which is not true of mastery (see normalizeMastery).
+ */
 export function normalizeProgressPercent(value: number): number {
-  const normalized = value > 1 ? value : value * 100;
-  return Math.max(0, Math.min(Math.round(normalized), 100));
+  return masteryPercent(value) ?? 0;
 }

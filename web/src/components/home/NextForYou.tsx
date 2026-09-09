@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatSkillLabel } from '@/lib/utils';
 import { reviewEntryHref } from '@/lib/entry-contract.mjs';
+import { conceptFromDueReview, masteryPercent } from '@/lib/learner-model.mjs';
 import type { DueReviewItem } from '@/types';
 
 /**
@@ -84,7 +85,13 @@ export default function NextForYou() {
       </p>
 
       <div className="space-y-3">
-        {dueReviews.map((item) => (
+        {dueReviews.map((item) => {
+          // Read the row as a learner record rather than as chat's own shape,
+          // so Home, Chat and the Classroom describe the same concept with the
+          // same words and the same 0..1 mastery scale.
+          const concept = conceptFromDueReview(item);
+          const percent = masteryPercent(concept.mastery);
+          return (
           <Link
             key={item.skill_id}
             href={reviewEntryHref(formatSkillLabel(item.skill_id)) ?? '/classroom'}
@@ -105,10 +112,13 @@ export default function NextForYou() {
                 {formatSkillLabel(item.skill_id)}
               </p>
               <p className="text-[11px] text-secondary truncate">
-                {item.days_overdue > 0
-                  ? `Due ${item.days_overdue}d ago`
+                {concept.daysOverdue > 0
+                  ? `Due ${concept.daysOverdue}d ago`
                   : 'Due today'}
-                {item.last_misconception ? ` · last time: ${item.last_misconception}` : ''}
+                {/* Only stated when the server actually has a reading. A
+                    concept that has never been assessed is not 0% mastered. */}
+                {percent !== null ? ` · ${percent}% mastered` : ''}
+                {concept.misconception ? ` · last time: ${concept.misconception}` : ''}
               </p>
             </div>
 
@@ -116,7 +126,8 @@ export default function NextForYou() {
               Review <ChevronRight size={14} />
             </span>
           </Link>
-        ))}
+          );
+        })}
       </div>
     </motion.div>
   );

@@ -259,6 +259,86 @@ is Phase E and needs backend writes this workstream does not have.
 
 ---
 
+## 9. Phase B — canonical learner intelligence (client side)
+
+`web/src/lib/learner-model.mjs` is the client's single vocabulary for
+evidence, mastery and retention. It is **not** a fifth mastery system: it owns
+no state and decides no facts. The server remains authoritative on correctness
+and on `mastery_score`; this module gives the four client surfaces one set of
+words and one scale to say it in.
+
+### 9.1 The scale bug this closed
+
+Mastery reached the clients under three field names on two scales:
+
+| Field | Surface |
+| --- | --- |
+| `AnswerCheckResult.mastery` | chat check |
+| `SessionSummarySkill.mastery` | session recap |
+| `DueReviewItem.mastery_level` | spaced repetition |
+| `Flashcard.mastery` | lesson block |
+
+The backend stores 0..1 (`m.mastery_level:.0%`, `< 0.4`, `>= 0.7` in
+`lyo_app/predictive` and `lyo_app/services`). `LessonView` rendered
+`width: ${card.mastery}%`, so a card at 0.7 mastery drew a 0.7%-wide bar. The
+codebase already knew about the ambiguity — `normalizeProgressPercent` in
+`learning-progress.ts` handled exactly it — but only in one place. That rule
+now lives in `normalizeMastery` / `masteryPercent`, and course progress is the
+course-progress name for it.
+
+`normalizeMastery` returns **null**, not 0, for a missing reading. "Never
+assessed" and "assessed at zero" are different claims about a learner and the
+UI must be able to tell them apart.
+
+### 9.2 Adapting the wire vocabulary
+
+`InputField.evidence_type` in `lyo_app/ai_classroom/sdui_models.py` is
+`Literal["explanation", "application", "transfer", "retrieval"]` — narrower
+than the product ladder in section 3, and it says "retrieval" where the ladder
+says "retention". `normalizeEvidenceKind` adapts wire to ladder rather than
+either side being renamed to match the other.
+
+An unrecognised evidence type returns null and advances no rung. A new
+server-side type must not be silently scored as `exposure`, and certainly not
+as `transfer`.
+
+### 9.3 Rules the module enforces
+
+- `MASTERED` requires application **and** transfer **and** retention, each at
+  or above `MASTERY_CONFIDENCE_FLOOR`. Any two is not enough.
+- A skipped question (`bailed_out`) yields no evidence at all — not evidence of
+  failure.
+- Hints damp the confidence attached to a demonstration; they never demote the
+  rung, and asking for help is never scored as failure.
+- A classroom submission the server did not accept is `exposure`. Submitting is
+  not demonstrating.
+- An incorrect answer still carries its misconception forward, and a
+  misconception survives a later correct retry, so remediation can target it.
+
+### 9.4 Real call sites
+
+The module is on live paths, not parked next to them:
+
+| Call site | What it now uses |
+| --- | --- |
+| `LessonView` flashcard bar | `masteryPercent` (fixes the 0.7% bar) |
+| `learning-progress.ts` | `masteryPercent` behind `normalizeProgressPercent` |
+| `NextForYou` | `conceptFromDueReview`, `masteryPercent` |
+| `classroom-store.ts` | `transcriptLabelFor`, typed `evidence_type` |
+
+The classroom transcript previously labelled every free-text submission
+"Application", including explanation and recall prompts, misreporting the
+learner's own record back to them.
+
+### 9.5 Still Phase B, not yet done
+
+Chat, Classroom and Test Prep now share a vocabulary but not yet a single
+learner record: each still reads its own endpoint. Collapsing those onto one
+client-side learner store needs the backend convergence in section 2.2, which
+this workstream cannot write.
+
+---
+
 ## 9. Invariants the parity gate enforces
 
 `scripts/verify-classroom-parity.mjs` is the CI guard that keeps Web, iOS and
@@ -274,3 +354,8 @@ review mode without a stored question, and one consumer brand.
 Both gates assert against code with comments stripped, so a file may document
 the fabricated block it replaced without tripping the gate that documentation
 exists to explain.
+
+The product-trust gate also pins the Phase B invariants: mastery requiring all
+three strong forms, skipped questions staying neutral, the client never
+declaring its own correctness, one mastery scale across renderers, and the
+transcript naming the rung actually asked for.

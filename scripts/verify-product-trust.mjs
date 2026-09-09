@@ -54,6 +54,10 @@ const manifest = read('web/public/manifest.json');
 const sidebar = readCode('web/src/components/layout/Sidebar.tsx');
 const chatSidebar = readCode('web/src/components/chat/ChatSidebar.tsx');
 const entryContract = readCode('web/src/lib/entry-contract.mjs');
+const learnerModel = readCode('web/src/lib/learner-model.mjs');
+const lessonView = readCode('web/src/components/courses/LessonView.tsx');
+const learningProgress = readCode('web/src/lib/learning-progress.ts');
+const classroomStore = readCode('web/src/stores/classroom-store.ts');
 
 // ── 1. No fabricated learner activity ────────────────────────────────────────
 
@@ -120,6 +124,40 @@ requireText(entryContract, "mode: 'review'", 'Due reviews enter Classroom review
 // test of whether the concept still trips the learner up.
 rejectText(nextForYou, 'last_question', 'Due reviews replay the old question');
 rejectText(entryContract, 'last_question', 'Review entry replays the old question');
+
+// ── 4. One learner model ─────────────────────────────────────────────────────
+
+// Mastery must not be grantable by one cheap demonstration. These three are
+// the product's definition of the word; losing any of them turns "mastered"
+// back into "answered something once".
+requireText(learnerModel, "'application', 'transfer', 'retention'", 'Mastery requires all three forms');
+requireText(learnerModel, 'MASTERY_CONFIDENCE_FLOOR', 'Mastery has a confidence floor');
+// Order in EVIDENCE_KINDS is meaning: evidenceRank compares by index.
+requireText(
+  learnerModel,
+  "'exposure',",
+  'Evidence ladder starts at exposure',
+);
+requireText(learnerModel, "retrieval: 'retention'", 'Wire vocabulary adapts onto the ladder');
+
+// A skipped question is neutral and the client never grades. Both are easy to
+// regress into "helpfully" scoring something the server did not.
+requireText(learnerModel, 'result.bailed_out', 'Skipped questions stay neutral');
+rejectPattern(learnerModel, /is_correct\s*=\s*true/, 'Client declares its own correctness');
+
+// One scale. The backend stores 0..1; a renderer assuming 0..100 draws a
+// confident wrong number rather than throwing.
+for (const [source, label] of [
+  [lessonView, 'Lesson view mastery bar'],
+  [learningProgress, 'Course progress'],
+]) {
+  requireText(source, 'masteryPercent', `${label} uses the canonical mastery scale`);
+}
+rejectText(lessonView, '${card.mastery}%', 'Lesson view renders raw mastery as a percent');
+
+// The transcript names the rung the component actually asked for.
+requireText(classroomStore, 'transcriptLabelFor', 'Classroom transcript names the real rung');
+rejectText(classroomStore, '`Application: ${trimmed}`', 'Classroom mislabels every submission');
 
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 

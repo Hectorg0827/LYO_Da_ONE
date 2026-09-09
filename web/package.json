@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:classroom": "node --test src/lib/classroom-contract.test.mjs",
     "test:entry": "node --test src/lib/entry-contract.test.mjs",
+    "test:learner": "node --test src/lib/learner-model.test.mjs",
     "test": "node --test src/lib/*.test.mjs"
   },
   "dependencies": {

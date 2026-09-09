@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { playSound, type AmbientSound } from '@/lib/classroom-sounds';
 import { buildClassroomWsUrl } from '@/lib/classroom-contract.mjs';
 import { updateCourseProgress } from '@/lib/stack';
+import { transcriptLabelFor } from '@/lib/learner-model.mjs';
 import type {
   ClassroomContractConnection,
   ClassroomMode,
@@ -24,6 +25,9 @@ export interface QuizOption {
   remediation_hint?: string | null;
 }
 
+/** The four values lyo_app/ai_classroom/sdui_models.py puts on the wire. */
+type EvidenceWireType = 'explanation' | 'application' | 'transfer' | 'retrieval';
+
 export interface ClassroomComponent {
   component_id: string;
   type: string;
@@ -41,7 +45,10 @@ export interface ClassroomComponent {
   min_words?: number;
   max_words?: number;
   min_score?: number;
-  evidence_type?: string;
+  /** What the component is asking the learner to demonstrate. The wire
+   *  vocabulary is narrower than the product ladder and calls retention
+   *  "retrieval" — normalizeEvidenceKind adapts it. */
+  evidence_type?: EvidenceWireType;
   source_attributions?: string[];
   language_code?: string;
   audio_url?: string | null;
@@ -1028,7 +1035,10 @@ export const useClassroomStore = create<ClassroomStore>((set, get) => {
         waitingForScene: true,
         lyoState: 'thinking',
       }));
-      pushTranscript('You', `Application: ${trimmed}`);
+      // Name the rung the component actually asked for. Labelling an
+      // explanation prompt "Application" misreports the learner's own
+      // transcript back to them.
+      pushTranscript('You', `${transcriptLabelFor(el.input.evidence_type)}: ${trimmed}`);
     },
 
     skipQuestion: (elementId: string) => {
