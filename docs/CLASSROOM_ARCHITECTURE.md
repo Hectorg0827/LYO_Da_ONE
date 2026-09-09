@@ -87,6 +87,51 @@ event stream and treat it as advisory, never authoritative.
 4. `AffectSample` and `MemoryInsight` move under the canonical learner model
    as signals the Director reads.
 
+### 2.3 Correction: which table actually carries live data
+
+An earlier draft of this document recommended converging **onto**
+`ai_classroom.MasteryState` because its schema is richer. Reading the backend
+with write access showed that recommendation was backwards on the facts.
+
+`ai_classroom.MasteryState` is **read** by the classroom's scene engine before
+every teaching decision, and written by nothing on the live path:
+`graph_service` fires only from the playback routes, and `interaction_service`
+has no callers at all. Meanwhile `personalization.LearnerMastery` is written
+by every chat check and carries all the accumulated learner data there is.
+
+So the Classroom has been adapting its teaching from a table Chat never fills.
+A learner who demonstrated a concept in Chat arrived at the Classroom as a
+stranger. Migrating rows between the two would have picked a winner; instead
+both become views of one event stream, which is what lets them agree.
+
+### 2.4 Backend convergence — what landed
+
+| Change | Where (`LyoBackendJune`) |
+| --- | --- |
+| Server twin of the client's evidence vocabulary | `lyo_app/events/evidence.py` |
+| Evidence columns on `LearningEvent` (concept, rung, confidence, hints, misconception, surface) | `lyo_app/events/models.py`, `alembic/versions/evidence_001_*` |
+| Evidence projected into the table the Classroom reads | `lyo_app/events/mastery_projection.py` |
+| Chat's check emits evidence | `lyo_app/api/v1/stream_lyo2.py` |
+| Classroom's graded submissions emit evidence | `lyo_app/ai_classroom/scene_lifecycle_engine.py` |
+| Projection exercised against a real database | `tests/test_mastery_projection_db.py` |
+
+Three decisions worth keeping visible:
+
+- **Concept identity.** Chat names concepts by slug; `MasteryState.concept_id`
+  is foreign-keyed to `concepts.id`, which holds UUIDs. Slugs therefore go to
+  `objective_id`, which has no foreign key, under a partial unique index on
+  `(user_id, objective_id)`. Without that index SQL treats the null
+  `concept_id` values as distinct and two concurrent checks create two rows.
+- **No double counting.** Both surfaces already run a DKT update directly for
+  the answer they are logging, so the event deliberately omits
+  `skill_ids_json` — the field that asks the processor to run a second one.
+- **Hidden rubrics stay hidden.** The transfer scorer's list of missed
+  keywords is never written into the learner model. It is grading internals;
+  stored there it would sit one render away from the screen.
+
+Still open: `personalization.LearnerMastery` has not yet become an adapter
+(step 2 above), and the SM-2 schedules have not been folded (step 3).
+
 ---
 
 ## 3. The evidence ladder
