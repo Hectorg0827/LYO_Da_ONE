@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const failures = [];
@@ -89,6 +89,31 @@ rejectText(iosLegacyViewModel, 'Which part of y = mx + b', 'iOS algebra-only qui
 requireText(iosLegacyModel, 'let quickCheck: QuickCheck?', 'iOS authored quick check contract');
 rejectText(iosLegacyOverlay, 'Simplified for now', 'iOS tap-to-order stub');
 rejectText(iosLegacyOverlay, 'Interactive Diagram', 'iOS diagram stub');
+
+// ── iOS teaches through exactly one classroom ────────────────────────────────
+//
+// iOS carried four classroom entry points. LivingClassroomView is the only one
+// MainTabView, EnhancedLyoHomeView or DiscoverView ever routed to; the other
+// three were unreachable code that would drift out of step with the shared
+// contract precisely because nothing exercised them.
+//
+// LivingClassroomEngine is the important one to keep out. It was an on-device
+// teaching loop added because the server-pushed classroom could dead-end. That
+// is a real failure worth fixing, but fixing it on the client makes iOS a
+// pedagogically different product from web and Android — the safe fallback
+// belongs server-side.
+const REMOVED_IOS_CLASSROOMS = [
+  'Sources/Services/LivingClassroomEngine.swift',
+  'Sources/Services/LyoClassroomService.swift',
+  'Sources/ViewModels/AgenticClassroomViewModel.swift',
+  'Sources/Views/Main/Classroom/AgenticClassroomView.swift',
+];
+
+for (const path of REMOVED_IOS_CLASSROOMS) {
+  if (existsSync(new URL(`../${path}`, import.meta.url))) {
+    failures.push(`iOS classroom convergence: ${path} is back — one classroom, one contract`);
+  }
+}
 
 if (failures.length) {
   console.error('AI Classroom parity gate failed:\n');

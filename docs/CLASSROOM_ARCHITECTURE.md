@@ -152,13 +152,14 @@ rather than introducing a second one.
 | `Views/Main/Classroom/LivingClassroomView.swift` | Live classroom surface | **CANONICAL** |
 | `Views/Classroom/ActiveLessonView.swift` | Lesson rendering, offline-safe skip | **CANONICAL** |
 | `Models/SDUIModels.swift` | Server-driven component catalog | **CANONICAL** |
-| `Services/LivingClassroomEngine.swift` | On-device teaching engine | **SAFE_TO_REMOVE** — parity gate already rejects `LivingClassroomEngine()`; a client-side teaching engine makes iOS a pedagogically different product |
+| ~~`Services/LivingClassroomEngine.swift`~~ | On-device teaching engine | **REMOVED** in Phase C — unreachable, and a client-side teaching engine makes iOS a pedagogically different product (see §10) |
 | `ViewModels/ClassroomViewModel.swift`, `Models/Classroom.swift` | Older classroom path | **LEGACY_ACTIVE** — parity gate pins its authored-quick-check contract |
-| `ViewModels/AgenticClassroomViewModel.swift`, `Views/Main/Classroom/AgenticClassroomView.swift` | Third classroom path | **LEGACY_ACTIVE** — needs a usage check before removal |
-| `Services/LyoClassroomService.swift` | Fourth classroom service | **LEGACY_ACTIVE** — needs a usage check |
+| ~~`ViewModels/AgenticClassroomViewModel.swift`, `Views/Main/Classroom/AgenticClassroomView.swift`~~ | Third classroom path | **REMOVED** in Phase C — the two referenced only each other; nothing routed to either (see §10) |
+| ~~`Services/LyoClassroomService.swift`~~ | Fourth classroom service | **REMOVED** in Phase C — unreachable duplicate WebSocket transport (see §10) |
 
-iOS carries **four** classroom entry points. Consolidating them onto
-`LivingClassroomService` is Phase C work.
+iOS carried **four** classroom entry points; Phase C removed the three that
+nothing routed to. `LivingClassroomView` / `LivingClassroomService` is now the
+only one, and the parity gate fails if any of the other three reappears.
 
 ### 4.4 Android (`android/app/src/main/java/com/lyo/app/`)
 
@@ -336,6 +337,60 @@ Chat, Classroom and Test Prep now share a vocabulary but not yet a single
 learner record: each still reads its own endpoint. Collapsing those onto one
 client-side learner store needs the backend convergence in section 2.2, which
 this workstream cannot write.
+
+---
+
+## 10. Phase C — iOS teaches through one classroom
+
+iOS carried four classroom entry points. Only one was reachable.
+
+| Path | Lines | Routed from | Outcome |
+| --- | --- | --- | --- |
+| `Views/Main/Classroom/LivingClassroomView.swift` + `Services/LivingClassroomService.swift` | — | `MainTabView`, `EnhancedLyoHomeView`, `DiscoverView` | **CANONICAL** |
+| `Services/LivingClassroomEngine.swift` | 589 | nothing | removed |
+| `Services/LyoClassroomService.swift` | 143 | nothing | removed |
+| `ViewModels/AgenticClassroomViewModel.swift` | 341 | only `AgenticClassroomView` | removed |
+| `Views/Main/Classroom/AgenticClassroomView.swift` | 349 | only its own ViewModel | removed |
+
+The Agentic pair referenced only each other — a mutually-referential island
+that nothing outside could reach. 1,422 lines total.
+
+Verified before removal, per the deprecation strategy in section 7: every type
+each file declared (`LivingClassroomEngine`, `LyoClassroomService`,
+`AgenticClassroomViewModel`, `AgenticClassroomView`, `AgentBlockCard`) has zero
+references anywhere else in `Sources/` or `Tests/`, and the only non-Swift
+references were the generated Xcode build entries. `ClassroomViewModel` is
+**LEGACY_ACTIVE** and was deliberately kept: `MainTabView`,
+`CourseOrchestrator`, both classroom overlays and `LiveClassroomSmokeTests` all
+still use it.
+
+### 10.1 Why the engine had to go, and what it was right about
+
+`LivingClassroomEngine` was an on-device pedagogical loop, added because the
+server-pushed classroom could dead-end — its own header says the screen "went
+dead" when the backend stopped streaming scenes.
+
+That failure is real and is not fixed by deleting the engine. But fixing it on
+the client makes iOS a pedagogically different product from web and Android,
+which is exactly what the parity gate exists to prevent. The correct fix is the
+server-side safe fallback in section 29 of the specification: when scene
+generation fails, teach something safe rather than dead-ending. That remains
+open backend work.
+
+### 10.2 Xcode project file
+
+`project.yml` builds the target from the whole `Sources` tree, so
+`Lyo.xcodeproj/project.pbxproj` is generated output and CI regenerates it with
+`xcodegen generate`. It is also tracked, so the 16 generated entries for the
+removed files were deleted from it by UUID to keep a local checkout openable
+without regenerating first. No dangling UUID survives.
+
+### 10.3 Verification limit
+
+This workstream has no macOS toolchain, so the iOS target was **not compiled
+here**. The removal rests on exhaustive symbol-reference checks rather than a
+build. CI's `ios` job (`xcodegen generate` + `xcodebuild test`) is the
+authoritative check.
 
 ---
 
