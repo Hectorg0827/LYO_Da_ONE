@@ -188,7 +188,7 @@ export default function ChatInterface() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
   const seededPrompt = searchParams.get('prompt');
-  const seededOnce = useRef(false);
+  const seededSent = useRef(false);
 
   useEffect(() => {
     hydrate();
@@ -213,16 +213,27 @@ export default function ChatInterface() {
    * empty chat with their opening turn missing. hydrate() returns its
    * in-flight promise to concurrent callers, so awaiting it here is enough.
    *
-   * Guarded by a ref rather than by message count so a re-render (or a reply
-   * arriving) can never re-send it.
+   * The ref records that the turn was **sent**, not that it was attempted.
+   * Marking the attempt instead loses the turn entirely under a remount: the
+   * first pass sets the flag and is then cancelled by its own cleanup, while
+   * the second pass sees the flag already set and declines to retry, so
+   * nobody sends. Strict Mode remounts every component once in development
+   * (Next 14 enables it by default), which made that the normal case locally
+   * rather than an edge one.
+   *
+   * Setting it at the send keeps both properties: a cancelled pass leaves the
+   * turn still owed, and the pass that does send closes the door behind it.
+   * Two live passes cannot both get through — whichever resumes first sets
+   * the ref synchronously before yielding again.
    */
   useEffect(() => {
-    if (!seededPrompt || seededOnce.current) return;
-    seededOnce.current = true;
+    if (!seededPrompt || seededSent.current) return;
     let cancelled = false;
     void (async () => {
       await hydrate();
-      if (!cancelled) void sendMessage(seededPrompt);
+      if (cancelled || seededSent.current) return;
+      seededSent.current = true;
+      void sendMessage(seededPrompt);
     })();
     return () => {
       cancelled = true;

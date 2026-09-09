@@ -114,7 +114,16 @@ rejectPattern(entryContract, /authLoading\s*\|\|/, 'Dashboard gate trusts an unr
 // The seeded opening turn is what makes "I have a test" reach the backend's
 // TEST_PREP intent rather than a client-side mock of it.
 requireText(chatInterface, "searchParams.get('prompt')", 'Chat accepts a seeded opening turn');
-requireText(chatInterface, 'seededOnce', 'Chat sends the seeded turn exactly once');
+// The guard must record that the turn was SENT, not that it was attempted.
+// Marking the attempt loses it under a remount: the first pass sets the flag
+// and is cancelled by its own cleanup, the second sees the flag and declines
+// to retry, so nobody sends. Strict Mode makes that the normal case in dev.
+requireText(chatInterface, 'seededSent.current = true;', 'Chat sends the seeded turn exactly once');
+rejectPattern(
+  chatInterface,
+  /seededSent\.current = true;\s*\n\s*(let|await)/,
+  'Seeded guard marks the attempt rather than the send',
+);
 // ...and sends it only once hydration has finished. A fresh load ends hydrate()
 // by replacing the conversation list and opening a new chat, so a turn sent
 // first lands in a conversation that is then discarded — the learner arrives at
