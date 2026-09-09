@@ -206,14 +206,28 @@ export default function ChatInterface() {
    * ask for subject, date and materials. No parallel client-side test-prep
    * mock sits in front of it.
    *
+   * The send is ordered behind hydration rather than racing it. On a fresh
+   * load hydrate() finishes by replacing the conversation list, clearing the
+   * active id and opening a new chat — so a turn sent first lands in a
+   * conversation that is then thrown away, and the learner arrives at an
+   * empty chat with their opening turn missing. hydrate() returns its
+   * in-flight promise to concurrent callers, so awaiting it here is enough.
+   *
    * Guarded by a ref rather than by message count so a re-render (or a reply
    * arriving) can never re-send it.
    */
   useEffect(() => {
     if (!seededPrompt || seededOnce.current) return;
     seededOnce.current = true;
-    void sendMessage(seededPrompt);
-  }, [seededPrompt, sendMessage]);
+    let cancelled = false;
+    void (async () => {
+      await hydrate();
+      if (!cancelled) void sendMessage(seededPrompt);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seededPrompt, sendMessage, hydrate]);
 
   // Auto-scroll when messages change or while generating
 

@@ -58,6 +58,7 @@ const learnerModel = readCode('web/src/lib/learner-model.mjs');
 const lessonView = readCode('web/src/components/courses/LessonView.tsx');
 const learningProgress = readCode('web/src/lib/learning-progress.ts');
 const classroomStore = readCode('web/src/stores/classroom-store.ts');
+const chatStore = readCode('web/src/stores/chat-store.ts');
 
 // ── 1. No fabricated learner activity ────────────────────────────────────────
 
@@ -114,6 +115,15 @@ rejectPattern(entryContract, /authLoading\s*\|\|/, 'Dashboard gate trusts an unr
 // TEST_PREP intent rather than a client-side mock of it.
 requireText(chatInterface, "searchParams.get('prompt')", 'Chat accepts a seeded opening turn');
 requireText(chatInterface, 'seededOnce', 'Chat sends the seeded turn exactly once');
+// ...and sends it only once hydration has finished. A fresh load ends hydrate()
+// by replacing the conversation list and opening a new chat, so a turn sent
+// first lands in a conversation that is then discarded — the learner arrives at
+// an empty chat with their "I have a test" opening turn missing.
+requireText(chatInterface, 'await hydrate()', 'Seeded turn is ordered behind hydration');
+// Awaiting hydrate() only orders anything because concurrent callers share the
+// in-flight promise instead of returning early.
+requireText(chatStore, 'hydrationInFlight', 'hydrate() is awaitable under concurrency');
+rejectText(chatStore, 'if (get().isHydrating) return;', 'hydrate() releases callers early');
 
 // ── 3. Due reviews are the learner's, not Chat's ─────────────────────────────
 

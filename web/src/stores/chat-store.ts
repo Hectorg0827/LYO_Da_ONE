@@ -60,6 +60,9 @@ function extractActionLabels(chunk: Record<string, unknown>): string[] {
 // chat" behavior needs. See hydrate() below.
 let hasHydratedThisSession = false;
 
+/** The in-flight hydrate(), so concurrent callers await one round trip. */
+let hydrationInFlight: Promise<void> | null = null;
+
 // Module-scoped for the same reason as hasHydratedThisSession above:
 // fetchDueReviews() replaces `dueReviews` wholesale from the server on
 // every call (e.g. ChatInterface remounting when the learner tabs away and
@@ -169,43 +172,58 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   hydrate: async () => {
-    if (get().isHydrating) return;
-    set({ isHydrating: true });
-    try {
-      const result = await api.chat.conversations();
-      const conversations: ChatConversation[] = result.conversations.map((conversation) => ({
-        id: conversation.id,
-        title: conversation.title,
-        messages: [],
-        createdAt: conversation.created_at,
-        updatedAt: conversation.updated_at,
-      }));
+    // Concurrent callers await the same work instead of returning early.
+    // The early return was fine while every caller only wanted hydration to
+    // have been *started*, but a caller that must act **after** it — the
+    // seeded opening turn in ChatInterface — would be released while the
+    // first call was still in flight. A fresh load ends hydrate() by
+    // replacing the conversation list, clearing the active id and opening a
+    // new chat, so a turn sent before that lands in a conversation that is
+    // then discarded.
+    if (hydrationInFlight) return hydrationInFlight;
+    hydrationInFlight = (async () => {
+      set({ isHydrating: true });
+      try {
+        const result = await api.chat.conversations();
+        const conversations: ChatConversation[] = result.conversations.map((conversation) => ({
+          id: conversation.id,
+          title: conversation.title,
+          messages: [],
+          createdAt: conversation.created_at,
+          updatedAt: conversation.updated_at,
+        }));
 
-      if (hasHydratedThisSession) {
-        // hydrate() runs again every time ChatInterface remounts (e.g. the
-        // learner tabs away to Community and back) — that must not disturb
-        // whatever conversation is currently open, only refresh the
-        // sidebar's history list. A not-yet-synced "New Chat" (a local-
-        // only id, absent from the server's list) is kept in front of it.
-        const active = get().conversations.find((c) => c.id === get().activeConversationId);
-        set({
-          conversations: active?.id.startsWith('local-') ? [active, ...conversations] : conversations,
-          isHydrating: false,
-        });
-        return;
+        if (hasHydratedThisSession) {
+          // hydrate() runs again every time ChatInterface remounts (e.g. the
+          // learner tabs away to Community and back) — that must not disturb
+          // whatever conversation is currently open, only refresh the
+          // sidebar's history list. A not-yet-synced "New Chat" (a local-
+          // only id, absent from the server's list) is kept in front of it.
+          const active = get().conversations.find((c) => c.id === get().activeConversationId);
+          set({
+            conversations: active?.id.startsWith('local-') ? [active, ...conversations] : conversations,
+            isHydrating: false,
+          });
+          return;
+        }
+        hasHydratedThisSession = true;
+
+        // The first hydrate since the app was actually opened (a fresh page
+        // load — reopening a closed tab/PWA re-runs this module from
+        // scratch): behave like ChatGPT/Claude and land on a brand-new
+        // conversation rather than silently resuming whatever was last open.
+        // Nothing is deleted — every past conversation is fetched above and
+        // stays one click away in the sidebar.
+        set({ conversations, activeConversationId: null, isHydrating: false });
+        get().createConversation();
+      } catch {
+        set({ isHydrating: false });
       }
-      hasHydratedThisSession = true;
-
-      // The first hydrate since the app was actually opened (a fresh page
-      // load — reopening a closed tab/PWA re-runs this module from
-      // scratch): behave like ChatGPT/Claude and land on a brand-new
-      // conversation rather than silently resuming whatever was last open.
-      // Nothing is deleted — every past conversation is fetched above and
-      // stays one click away in the sidebar.
-      set({ conversations, activeConversationId: null, isHydrating: false });
-      get().createConversation();
-    } catch {
-      set({ isHydrating: false });
+    })();
+    try {
+      await hydrationInFlight;
+    } finally {
+      hydrationInFlight = null;
     }
   },
 
