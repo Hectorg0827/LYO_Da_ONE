@@ -119,6 +119,22 @@ export interface DueReviewItem {
   last_misconception?: string | null;
 }
 
+/**
+ * How many concepts the learner is exploring, has learned, retained and
+ * mastered. Counted server-side from their own evidence — see
+ * `lyo_app/events/concept_summary.py` for what each word is earned by.
+ *
+ * The categories are a funnel, not a partition: a mastered concept is also
+ * learned and retained. Summing them would double-count.
+ */
+export interface ConceptSummary {
+  exploring: number;
+  learned: number;
+  retained: number;
+  mastered: number;
+  total: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';

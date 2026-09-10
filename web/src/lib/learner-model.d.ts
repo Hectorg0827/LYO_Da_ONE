@@ -74,3 +74,17 @@ export function conceptFromDueReview(item: {
   last_misconception?: string | null;
   days_overdue?: number;
 }): LearnerConcept;
+
+/**
+ * Lead Home with concepts once there is at least one to count; otherwise the
+ * activity stats, which are at least true. See the implementation for why
+ * three honest zeroes would be the worse lie.
+ */
+export function shouldLeadWithConcepts(
+  summary: { total?: number } | null | undefined,
+): boolean;
+
+/** Has this learner demonstrably proved a concept? */
+export function hasConceptEvidence(
+  summary: { total?: number } | null | undefined,
+): boolean;

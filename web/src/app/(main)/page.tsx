@@ -30,6 +30,7 @@ import { listCourseStacks, postCourseToCommunity, courseShareUrl } from '@/lib/s
 import NextForYou from '@/components/home/NextForYou';
 import FrontDoor from '@/components/home/FrontDoor';
 import { shouldShowLearnerDashboard } from '@/lib/entry-contract.mjs';
+import { hasConceptEvidence, shouldLeadWithConcepts } from '@/lib/learner-model.mjs';
 
 // Color palette for dynamically mapped courses
 const courseColors = ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#3b82f6'];
@@ -276,6 +277,7 @@ export default function HomePage() {
   const [mounted, setMounted] = useState(false);
 
   const { data: gamification } = useApi(() => api.gamification.overview(), []);
+  const { data: conceptSummary } = useApi(() => api.personalization.conceptSummary(), []);
   const { data: courses } = useApi(() => api.courses.list(0, 4), []);
   const { data: feedData } = useApi(() => api.feed.publicFeed(1, 3), []);
   // Device- and platform-agnostic Stacks: courses this learner has actually
@@ -299,7 +301,7 @@ export default function HomePage() {
   const xpSummary = gamification?.xp_summary as Record<string, unknown> | undefined;
   const userLevel = gamification?.user_level as Record<string, unknown> | undefined;
   const achievementsData = gamification?.achievements as Record<string, unknown> | undefined;
-  const learningStats = [
+  const activityStats = [
     {
       label: 'Hours Learned',
       value: String((userLevel?.total_hours as number) || user?.xp ? Math.round((user?.xp || 0) / 100) : 0),
@@ -333,6 +335,66 @@ export default function HomePage() {
       trend: bestStreak > currentStreak ? `Best: ${bestStreak}d` : '',
     },
   ];
+
+  /**
+   * Lead with what the learner knows, not how often they showed up.
+   *
+   * XP, level, hours and streak are real, but they measure attendance. A
+   * learner with a thirty-day streak still cannot tell from that whether they
+   * understand anything. These counts are earned from their own evidence
+   * server-side — see `lyo_app/events/concept_summary.py` for what each word
+   * requires — so the headline means what it says.
+   *
+   * Streak keeps the fourth slot. It is honest about being a habit measure,
+   * and it is the one number here that rewards coming back tomorrow.
+   *
+   * If the summary is unavailable — an older backend, a failed request — the
+   * activity stats are shown instead. Rendering zeroes for a learner who has
+   * demonstrably done work would be the same fabrication this page was
+   * cleaned up to remove, just with a more flattering vocabulary.
+   */
+  // Narrowed here rather than inline: the decision lives in a .mjs module, so
+  // TypeScript cannot see through the call to know the summary is non-null.
+  const leadingConcepts = shouldLeadWithConcepts(conceptSummary) ? conceptSummary : null;
+
+  const conceptStats = leadingConcepts
+    ? [
+        {
+          label: 'Learned',
+          value: String(leadingConcepts.learned),
+          sub: 'concepts explained',
+          icon: BookOpen,
+          color: '#6366f1',
+          trend: leadingConcepts.exploring > 0 ? `${leadingConcepts.exploring} exploring` : '',
+        },
+        {
+          label: 'Mastered',
+          value: String(leadingConcepts.mastered),
+          sub: 'applied, transferred, retained',
+          icon: Trophy,
+          color: '#22c55e',
+          trend: '',
+        },
+        {
+          label: 'Retained',
+          value: String(leadingConcepts.retained),
+          sub: 'recalled after a break',
+          icon: Zap,
+          color: '#f59e0b',
+          trend: '',
+        },
+        {
+          label: 'Streak',
+          value: `${currentStreak}d`,
+          sub: 'current',
+          icon: Clock,
+          color: '#ec4899',
+          trend: bestStreak > currentStreak ? `Best: ${bestStreak}d` : '',
+        },
+      ]
+    : null;
+
+  const learningStats = conceptStats ?? activityStats;
 
   // Map real Stack items — device- and platform-agnostic, backend-synced,
   // sourced from every course a course card's Start action has actually
@@ -368,6 +430,7 @@ export default function HomePage() {
    * invents a number to fill the space.
    */
   const hasRealActivity =
+    hasConceptEvidence(conceptSummary) ||
     stackCourses.length > 0 ||
     ((xpSummary?.total as number) || user?.xp || 0) > 0 ||
     ((achievementsData?.completed as number) || user?.coursesCompleted || 0) > 0 ||

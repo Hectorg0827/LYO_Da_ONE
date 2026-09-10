@@ -12,6 +12,8 @@ import {
   normalizeEvidenceKind,
   normalizeMastery,
   transcriptLabelFor,
+  shouldLeadWithConcepts,
+  hasConceptEvidence,
 } from './learner-model.mjs';
 
 const strong = (kind) => ({ kind, confidence: 1 });
@@ -224,4 +226,39 @@ test('a demonstration is named by the rung it was actually asked for', () => {
 test('an unknown prompt type gets a neutral label, not a guessed rung', () => {
   assert.equal(transcriptLabelFor(undefined), 'Answer');
   assert.equal(transcriptLabelFor('something_new'), 'Answer');
+});
+
+// ─── What Home leads with ────────────────────────────────────────────────────
+
+test('Home leads with concepts once there is one to count', () => {
+  assert.equal(shouldLeadWithConcepts({ total: 1, learned: 1 }), true);
+  assert.equal(shouldLeadWithConcepts({ total: 12, mastered: 3 }), true);
+});
+
+test('a learner with no evidence yet is not shown three zeroes', () => {
+  // Evidence only exists for work done since the learner model started
+  // recording it. Someone with a year of XP and no evidence would otherwise
+  // be told they have mastered nothing — a worse lie than showing their XP.
+  assert.equal(shouldLeadWithConcepts({ total: 0, learned: 0, mastered: 0 }), false);
+});
+
+test('an unavailable summary falls back rather than rendering zeroes', () => {
+  assert.equal(shouldLeadWithConcepts(null), false);
+  assert.equal(shouldLeadWithConcepts(undefined), false);
+});
+
+test('a malformed summary is not trusted into the headline', () => {
+  assert.equal(shouldLeadWithConcepts({}), false);
+  assert.equal(shouldLeadWithConcepts({ total: 'lots' }), false);
+  assert.equal(shouldLeadWithConcepts({ total: NaN }), false);
+  assert.equal(shouldLeadWithConcepts('12'), false);
+});
+
+test('proving a concept counts as real activity on its own', () => {
+  // Someone who demonstrated a concept in Chat but never earned an XP point
+  // is not a stranger; greeting them with the front door discards what they
+  // already showed us.
+  assert.equal(hasConceptEvidence({ total: 2 }), true);
+  assert.equal(hasConceptEvidence({ total: 0 }), false);
+  assert.equal(hasConceptEvidence(null), false);
 });

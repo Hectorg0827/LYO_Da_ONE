@@ -183,6 +183,32 @@ rejectText(lessonView, '${card.mastery}%', 'Lesson view renders raw mastery as a
 requireText(classroomStore, 'transcriptLabelFor', 'Classroom transcript names the real rung');
 rejectText(classroomStore, '`Application: ${trimmed}`', 'Classroom mislabels every submission');
 
+// ── 3b. Home leads with what the learner knows ───────────────────────────────
+//
+// XP, hours and streak measure attendance. The headline is supposed to be
+// concepts learned, mastered and retained — and those have to be earned from
+// evidence server-side, never assembled on the client from whatever score is
+// to hand.
+
+requireText(home, 'api.personalization.conceptSummary(', 'Home reads the concept summary');
+requireText(home, 'shouldLeadWithConcepts(', 'Home decides the headline by the shared rule');
+requireText(home, "label: 'Mastered'", 'Home headlines concepts mastered');
+requireText(home, "label: 'Retained'", 'Home headlines concepts retained');
+
+// Concept counts must come from the server's summary, not be recomputed here.
+for (const invented of ['.filter((c) => c.mastered', 'countMastered(', 'mastered += ']) {
+  rejectText(home, invented, 'Home derives concept counts on the client');
+}
+
+// A learner with no evidence yet must not be shown three zeroes as a
+// headline — that is the same fabrication this gate exists to prevent, in a
+// more flattering vocabulary.
+requireText(
+  learnerModel,
+  'return Number.isFinite(total) && total > 0;',
+  'Concept headline requires at least one counted concept'
+);
+
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 
 for (const [source, label] of [

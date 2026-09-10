@@ -1,6 +1,7 @@
 import type {
   User,
   ChatBlock,
+  ConceptSummary,
   CheckAnswerResult,
   SessionSummary,
   DueReviewItem,
@@ -688,6 +689,22 @@ export const api = {
 
     async seen(storyId: string) {
       return request(`/api/v1/stories/${storyId}/seen`, { method: 'POST' });
+    },
+  },
+
+  // ── Learner model ──
+  personalization: {
+    /**
+     * How many concepts this learner is exploring, has learned, retained and
+     * mastered — counted server-side from their own evidence, never derived
+     * on the client from a score that happens to be handy.
+     *
+     * Home leads with these. A wrong one is worse than no headline: a learner
+     * told they have mastered twelve concepts and then failing a test on them
+     * has been lied to by their own progress screen.
+     */
+    async conceptSummary() {
+      return request<ConceptSummary>('/api/v1/personalization/concepts/summary');
     },
   },
 

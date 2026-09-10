@@ -310,3 +310,39 @@ export function conceptFromDueReview(item) {
     dueForRetrieval: true,
   };
 }
+
+/**
+ * Should Home lead with what the learner knows, or with what they have done?
+ *
+ * The specification wants concepts learned, mastered and retained in the lead
+ * position: XP, hours and streak are real, but they measure attendance, and a
+ * learner with a thirty-day streak still cannot tell from that whether they
+ * understand anything.
+ *
+ * The catch is that the concept counts are earned from evidence, and evidence
+ * only exists for work done since the learner model started recording it. A
+ * learner with a year of XP and no evidence yet would be shown three zeroes —
+ * the same fabrication this page was cleaned up to remove, just with a more
+ * flattering vocabulary. Leading with an honest "0 mastered" for someone who
+ * has demonstrably been learning is a worse lie than leading with their XP.
+ *
+ * So: lead with concepts once there is at least one to count. Otherwise show
+ * the activity stats, which are at least true.
+ */
+export function shouldLeadWithConcepts(summary) {
+  if (!summary || typeof summary !== 'object') return false;
+  const total = Number(summary.total);
+  return Number.isFinite(total) && total > 0;
+}
+
+/**
+ * Has this learner demonstrably done something?
+ *
+ * Used to decide whether Home shows a learner dashboard at all. Concept
+ * evidence counts: someone who has proved a concept in Chat but never earned
+ * an XP point is not a stranger, and greeting them with a front door as if
+ * they were would discard what they already showed us.
+ */
+export function hasConceptEvidence(summary) {
+  return shouldLeadWithConcepts(summary);
+}
