@@ -69,14 +69,29 @@ export interface ChatBlock {
   metadata?: Record<string, unknown> | null;
 }
 
-/** Narrowed content shape for `type: 'quiz'` blocks — the gradeable check. */
+/**
+ * Narrowed content shape for `type: 'quiz'` blocks — the gradeable check.
+ *
+ * `correct_index`, `explanation` and each option's `reveals` are **stripped by
+ * the server** before a block reaches any client. They used to arrive with the
+ * question, which meant the answer key and the internal misconception tags
+ * were readable in the network tab before the learner chose anything.
+ *
+ * They stay in the type as optional because stored blocks written before the
+ * redaction landed may still carry them, and because the same shape describes
+ * the server-side block. Nothing in the UI may read them: the verdict comes
+ * from `CheckAnswerResult` after submission.
+ */
 export interface ChatQuizContent {
   question: string;
   options: { id: string; text: string; reveals?: string | null }[];
-  /** Present in the payload but NEVER used to decide correctness on the client. */
+  /** Redacted on the wire. Never used to decide correctness on the client. */
   correct_index?: number;
+  /** Redacted on the wire. The post-answer explanation arrives on the result. */
   explanation?: string | null;
+  /** Kept: the learner is meant to be able to ask, and asking is tracked. */
   hint?: string | null;
+  /** Kept: the "just explain it" opt-out has to be visible to be chosen. */
   bailout_index?: number | null;
 }
 

@@ -209,6 +209,23 @@ requireText(
   'Concept headline requires at least one counted concept'
 );
 
+// ── 3c. The client cannot grade, because it is not told the answer ──────────
+//
+// The server strips `correct_index`, `explanation` and each option's
+// `reveals` before a block leaves it. This gate pins the client half: nothing
+// in the UI may reach for those fields to decide correctness.
+
+const checkBlock = readCode('web/src/components/chat/blocks/CheckBlock.tsx');
+
+// The verdict comes from the server's result, never from the block content.
+rejectText(checkBlock, 'content.correct_index', 'Check grades from the block instead of the verdict');
+rejectText(checkBlock, 'content.explanation', 'Check reveals the explanation before answering');
+requireText(checkBlock, 'result!.correct_index', 'Check marks the right option from the server verdict');
+
+// Misconception tags name what choosing an option would say about the
+// learner. They are the server's diagnosis, not something to render at them.
+rejectText(checkBlock, 'option.reveals', 'Check renders an internal misconception tag');
+
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 
 for (const [source, label] of [
