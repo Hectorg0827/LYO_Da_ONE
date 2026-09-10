@@ -331,18 +331,30 @@ export function conceptFromDueReview(item) {
  */
 export function shouldLeadWithConcepts(summary) {
   if (!summary || typeof summary !== 'object') return false;
-  const total = Number(summary.total);
-  return Number.isFinite(total) && total > 0;
+  // The headline is Learned / Mastered / Retained, so at least one of *those*
+  // has to be non-zero — not `total`, which also counts concepts the learner
+  // has merely been exposed to. A learner who has met three ideas and
+  // explained none would otherwise be shown three zeroes as their headline:
+  // the exact fabrication this rule exists to prevent, and a more damning one
+  // than showing their XP.
+  const counted = ['learned', 'retained', 'mastered'].map((key) => Number(summary[key]));
+  return counted.some((value) => Number.isFinite(value) && value > 0);
 }
 
 /**
  * Has this learner demonstrably done something?
  *
- * Used to decide whether Home shows a learner dashboard at all. Concept
- * evidence counts: someone who has proved a concept in Chat but never earned
- * an XP point is not a stranger, and greeting them with a front door as if
- * they were would discard what they already showed us.
+ * Used to decide whether Home shows a learner dashboard at all. A different
+ * question from `shouldLeadWithConcepts`, and it was a mistake to alias them:
+ * merely *meeting* three concepts is real activity — that learner is not a
+ * stranger and greeting them with the front door discards what they showed us
+ * — while it is not yet anything worth putting in a headline.
+ *
+ * So this counts every concept with evidence; the headline rule above counts
+ * only the ones that reached a rung worth naming.
  */
 export function hasConceptEvidence(summary) {
-  return shouldLeadWithConcepts(summary);
+  if (!summary || typeof summary !== 'object') return false;
+  const total = Number(summary.total);
+  return Number.isFinite(total) && total > 0;
 }

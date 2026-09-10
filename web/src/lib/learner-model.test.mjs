@@ -230,9 +230,20 @@ test('an unknown prompt type gets a neutral label, not a guessed rung', () => {
 
 // ─── What Home leads with ────────────────────────────────────────────────────
 
-test('Home leads with concepts once there is one to count', () => {
+test('Home leads with concepts once one has reached a rung worth naming', () => {
   assert.equal(shouldLeadWithConcepts({ total: 1, learned: 1 }), true);
   assert.equal(shouldLeadWithConcepts({ total: 12, mastered: 3 }), true);
+  assert.equal(shouldLeadWithConcepts({ total: 4, retained: 1 }), true);
+});
+
+test('having merely met some concepts is not a headline', () => {
+  // The headline is Learned / Mastered / Retained. A learner who has been
+  // exposed to three ideas and explained none would be shown three zeroes.
+  assert.equal(shouldLeadWithConcepts({ total: 3, exploring: 3 }), false);
+  assert.equal(
+    shouldLeadWithConcepts({ total: 3, exploring: 3, learned: 0, mastered: 0, retained: 0 }),
+    false
+  );
 });
 
 test('a learner with no evidence yet is not shown three zeroes', () => {
@@ -254,11 +265,13 @@ test('a malformed summary is not trusted into the headline', () => {
   assert.equal(shouldLeadWithConcepts('12'), false);
 });
 
-test('proving a concept counts as real activity on its own', () => {
-  // Someone who demonstrated a concept in Chat but never earned an XP point
-  // is not a stranger; greeting them with the front door discards what they
-  // already showed us.
+test('meeting a concept counts as real activity on its own', () => {
+  // Someone who worked on a concept in Chat but never earned an XP point is
+  // not a stranger; greeting them with the front door discards what they
+  // already showed us. A lower bar than the headline, deliberately — these
+  // are different questions and aliasing them was a mistake.
   assert.equal(hasConceptEvidence({ total: 2 }), true);
+  assert.equal(hasConceptEvidence({ total: 3, exploring: 3 }), true);
   assert.equal(hasConceptEvidence({ total: 0 }), false);
   assert.equal(hasConceptEvidence(null), false);
 });

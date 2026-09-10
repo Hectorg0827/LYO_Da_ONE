@@ -265,6 +265,50 @@ requireText(nextForYou, '{item.detail}', 'Recommendations do not say why they we
 // invented to occupy the space.
 requireText(nextForYou, 'setItems([])', 'A failed recommendation call is not handled silently');
 
+// ── 3f. Nothing supplementary may evict a guest ─────────────────────────────
+//
+// `request()` treats a 401 as a session expiry: it clears tokens and
+// navigates to /auth/login. Home calls the concept summary on every load, so
+// without `optionalAuth` a signed-out visitor is redirected off the very
+// front door the page exists to show them. The explorable's exposure ping had
+// the same problem: a click meant to select a point could end the session.
+
+const apiClient = readCode('web/src/lib/api.ts');
+const explorableBlock2 = readCode('web/src/components/chat/blocks/ExplorableBlock.tsx');
+
+requireText(apiClient, 'optionalAuth', 'API client cannot make a call guest-safe');
+requireText(
+  apiClient,
+  "!skipAuth && !optionalAuth",
+  'A 401 on an optional call still redirects to login'
+);
+for (const [call, label] of [
+  ['concepts/summary', 'Concept summary'],
+  ['recommendations?limit=', 'Recommendations'],
+  ['/api/v1/evolution/events', 'Exposure logging'],
+]) {
+  // Scoped to the call itself — up to its closing `});` — so an
+  // `optionalAuth` on the *next* endpoint cannot satisfy this one.
+  const at = apiClient.indexOf(call);
+  const rest = at === -1 ? '' : apiClient.slice(at);
+  // Whichever comes first: the end of this call, or the start of the next
+  // method. Bounding only on `});` swallowed the following call when this one
+  // ended in a plain `);`, and its `optionalAuth` then satisfied this check.
+  const bounds = [rest.indexOf('});'), rest.indexOf('async ')].filter((i) => i !== -1);
+  const thisCall = bounds.length ? rest.slice(0, Math.min(...bounds)) : rest.slice(0, 400);
+  requireText(thisCall, 'optionalAuth', `${label} can evict a guest from Home`);
+}
+
+// ── 3g. An unknown explorable must not eat the lesson ───────────────────────
+//
+// `canRenderBlock` decides whether MessageBubble may hide the prose fallback.
+// It once accepted any string `kind` while the component drew only the kinds
+// it knew, so an unrecognised kind left a gap where the lesson had been.
+
+const canRender = readCode('web/src/components/chat/blocks/can-render.ts');
+requireText(canRender, 'canRenderExplorable(content)', 'Render check re-implements the explorable rule');
+rejectText(canRender, "str('kind')", 'Render check accepts an explorable kind it cannot draw');
+
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 
 for (const [source, label] of [

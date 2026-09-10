@@ -63,11 +63,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * `skipAuth` sends no token at all — for genuinely public endpoints.
+ *
+ * `optionalAuth` still sends the token when there is one, but a 401 throws
+ * instead of clearing the session and navigating to /auth/login. Use it for
+ * anything supplementary: a signed-out visitor has no learner record, and a
+ * call that merely *decorates* Home must never be able to evict them from it.
+ * The front door is supposed to work for guests.
+ */
 async function request<T>(
   endpoint: string,
-  options: RequestInit & { skipAuth?: boolean } = {}
+  options: RequestInit & { skipAuth?: boolean; optionalAuth?: boolean } = {}
 ): Promise<T> {
-  const { skipAuth, ...fetchOptions } = options;
+  const { skipAuth, optionalAuth, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(fetchOptions.headers as Record<string, string>),
@@ -83,7 +92,7 @@ async function request<T>(
     headers,
   });
 
-  if (res.status === 401 && !skipAuth) {
+  if (res.status === 401 && !skipAuth && !optionalAuth) {
     const refreshed = await tryRefreshToken();
     if (refreshed) {
       headers['Authorization'] = `Bearer ${getAccessToken()}`;
@@ -705,6 +714,9 @@ export const api = {
      */
     async recordExposure(conceptId: string) {
       return request('/api/v1/evolution/events', {
+        // Bookkeeping. A guest clicking a point on a number line is exploring
+        // an idea; being thrown to the login page for it would be absurd.
+        optionalAuth: true,
         method: 'POST',
         body: JSON.stringify({
           user_id: 0, // replaced server-side by the authenticated user
@@ -728,7 +740,12 @@ export const api = {
      * has been lied to by their own progress screen.
      */
     async conceptSummary() {
-      return request<ConceptSummary>('/api/v1/personalization/concepts/summary');
+      return request<ConceptSummary>('/api/v1/personalization/concepts/summary', {
+        // Home calls this on every load, including for signed-out visitors.
+        // Without this a missing token would redirect them to /auth/login —
+        // out of the front door the page exists to show them.
+        optionalAuth: true,
+      });
     },
 
     /**
@@ -741,7 +758,8 @@ export const api = {
      */
     async recommendations(limit = 4) {
       return request<RecommendationList>(
-        `/api/v1/personalization/recommendations?limit=${limit}`
+        `/api/v1/personalization/recommendations?limit=${limit}`,
+        { optionalAuth: true }
       );
     },
   },
