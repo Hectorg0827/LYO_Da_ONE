@@ -92,7 +92,12 @@ async function request<T>(
     headers,
   });
 
-  if (res.status === 401 && !skipAuth && !optionalAuth) {
+  if (res.status === 401 && !skipAuth) {
+    // The refresh runs for optional calls too. Skipping the whole branch was
+    // an over-correction: a signed-in learner with a merely *expired* access
+    // token would never refresh on these, so the concept headline and Next
+    // for you would sit empty for the whole visit — `useApi` does not retry
+    // after some other request later refreshes the token.
     const refreshed = await tryRefreshToken();
     if (refreshed) {
       headers['Authorization'] = `Bearer ${getAccessToken()}`;
@@ -105,6 +110,16 @@ async function request<T>(
         return retry.json();
       }
     }
+
+    // What `optionalAuth` actually buys: the refresh was tried and failed, or
+    // there was never a session. For a supplementary call that means "no data
+    // for you", not "you are logged out" — so it throws for the caller to
+    // swallow rather than clearing the session and navigating away from the
+    // front door a guest is standing in.
+    if (optionalAuth) {
+      throw new ApiError('Not signed in', 401);
+    }
+
     clearTokens();
     if (typeof window !== 'undefined') window.location.href = '/auth/login';
     throw new ApiError('Session expired', 401);

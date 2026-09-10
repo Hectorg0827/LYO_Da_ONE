@@ -277,11 +277,11 @@ const apiClient = readCode('web/src/lib/api.ts');
 const explorableBlock2 = readCode('web/src/components/chat/blocks/ExplorableBlock.tsx');
 
 requireText(apiClient, 'optionalAuth', 'API client cannot make a call guest-safe');
-requireText(
-  apiClient,
-  "!skipAuth && !optionalAuth",
-  'A 401 on an optional call still redirects to login'
-);
+// The optional call must still refresh an expired token — skipping the whole
+// 401 branch left a signed-in learner's Home sections empty for the visit —
+// and must throw instead of navigating away once that refresh has failed.
+requireText(apiClient, 'if (optionalAuth) {', 'An optional 401 still redirects to login');
+rejectText(apiClient, '!skipAuth && !optionalAuth', 'Optional calls skip the token refresh');
 for (const [call, label] of [
   ['concepts/summary', 'Concept summary'],
   ['recommendations?limit=', 'Recommendations'],
