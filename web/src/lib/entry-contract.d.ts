@@ -20,3 +20,9 @@ export function shouldShowLearnerDashboard(state: {
   isAuthenticated?: boolean;
   hasRealActivity?: boolean;
 }): boolean;
+
+/**
+ * Open the Classroom to practise a weak concept. Not review mode: retrieval
+ * of something never learned would be recorded as retention it is not.
+ */
+export function practiceEntryHref(conceptLabel: string): string | null;

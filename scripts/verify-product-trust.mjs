@@ -309,6 +309,20 @@ const canRender = readCode('web/src/components/chat/blocks/can-render.ts');
 requireText(canRender, 'canRenderExplorable(content)', 'Render check re-implements the explorable rule');
 rejectText(canRender, "str('kind')", 'Render check accepts an explorable kind it cannot draw');
 
+// ── 3h. A weak concept is practised, not retrieved ──────────────────────────
+//
+// Every recommendation used to open review mode. For a concept the learner is
+// weak on that asks them to retrieve a memory that was never formed, and logs
+// any success as retention evidence it is not.
+
+requireText(nextForYou, 'practiceEntryHref(', 'Weak concepts are sent to review mode');
+requireText(entryContract, 'export function practiceEntryHref', 'No practice entry exists');
+rejectPattern(
+  entryContract,
+  /export function practiceEntryHref[\s\S]{0,400}mode: 'review'/,
+  'Practice entry opens review mode',
+);
+
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 
 for (const [source, label] of [

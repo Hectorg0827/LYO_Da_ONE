@@ -6,6 +6,7 @@ import {
   reviewEntryHref,
   shouldShowLearnerDashboard,
   testPrepEntryHref,
+  practiceEntryHref,
 } from './entry-contract.mjs';
 
 const query = (href) => new URL(href, 'https://lyo.test').searchParams;
@@ -131,4 +132,40 @@ test('a signed-in learner with nothing yet still gets the front door', () => {
 test('missing state is treated as nothing known, not as a learner', () => {
   assert.equal(shouldShowLearnerDashboard({}), false);
   assert.equal(shouldShowLearnerDashboard(), false);
+});
+
+// ─── Practice is not review ──────────────────────────────────────────────────
+
+test('a weak concept is practised, not retrieved', () => {
+  // Review asks the learner to retrieve something they already learned, and
+  // success there is retention evidence. A concept on the weak list has not
+  // been learned yet: retrieval tests a memory that was never formed, and any
+  // success would be recorded as durable recall it is not.
+  const params = new URLSearchParams(
+    practiceEntryHref('Compare fractions').split('?')[1]
+  );
+  assert.equal(params.get('mode'), null);
+  assert.ok(!(params.get('objective') ?? '').includes('Retrieve'));
+});
+
+test('practice leaves the mode to the Classroom', () => {
+  assert.ok(!practiceEntryHref('Compare fractions').includes('mode='));
+});
+
+test('practice still names an objective so the Director has an intent', () => {
+  // Parsed rather than string-matched: URLSearchParams encodes spaces as `+`,
+  // which decodeURIComponent leaves alone, so a substring check on the raw
+  // href tests the encoding rather than the objective.
+  const params = new URLSearchParams(practiceEntryHref('Compare fractions').split('?')[1]);
+  assert.equal(params.get('objective'), 'Practise and apply Compare fractions');
+  assert.equal(params.get('topic'), 'Compare fractions');
+});
+
+test('review still enters review mode', () => {
+  assert.ok(reviewEntryHref('Compare fractions').includes('mode=review'));
+});
+
+test('practice with no concept is not a destination', () => {
+  assert.equal(practiceEntryHref(''), null);
+  assert.equal(practiceEntryHref(null), null);
 });

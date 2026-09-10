@@ -6,7 +6,7 @@ import { RotateCcw, GraduationCap, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatSkillLabel } from '@/lib/utils';
-import { reviewEntryHref } from '@/lib/entry-contract.mjs';
+import { practiceEntryHref, reviewEntryHref } from '@/lib/entry-contract.mjs';
 import { masteryPercent } from '@/lib/learner-model.mjs';
 import type { Recommendation } from '@/types';
 
@@ -100,7 +100,14 @@ export default function NextForYou() {
           return (
           <Link
             key={item.concept_id}
-            href={reviewEntryHref(formatSkillLabel(item.concept_id)) ?? '/classroom'}
+            // A due concept goes to review; a weak one goes to practice.
+            // Sending both to review would ask a learner to retrieve
+            // something they never learned, and log any success as retention.
+            href={
+              (isDue
+                ? reviewEntryHref(formatSkillLabel(item.concept_id))
+                : practiceEntryHref(formatSkillLabel(item.concept_id))) ?? '/classroom'
+            }
             className="glass-card p-4 flex items-center gap-4 transition-all duration-200 hover:scale-[1.01]"
           >
             <div

@@ -70,6 +70,26 @@ export function reviewEntryHref(conceptLabel) {
   });
 }
 
+/**
+ * Open the Classroom to practise a concept the learner is weak on.
+ *
+ * Deliberately NOT review mode. Review asks the learner to retrieve something
+ * they already learned, and a success there is retention evidence. A concept
+ * on the weak list has not been learned yet — asking them to retrieve it tests
+ * a memory that was never formed, and any success would be recorded as
+ * durable recall it is not.
+ *
+ * So this leaves the mode unset: the Classroom teaches, and the demonstration
+ * lands at whatever rung the question actually asks for.
+ */
+export function practiceEntryHref(conceptLabel) {
+  const label = (conceptLabel ?? '').trim();
+  return classroomEntryHref({
+    topic: label,
+    objective: `Practise and apply ${label}`,
+  });
+}
+
 /** Open Chat on the Test Prep intent. */
 export function testPrepEntryHref() {
   return `/chat?prompt=${encodeURIComponent(TEST_PREP_OPENING_TURN)}`;
