@@ -264,6 +264,54 @@ Classroom Review mode is Phase C.
 | **E — Test prep integration** | Diagnostic -> canonical mastery -> readiness -> classroom sessions | yes |
 | **F — Product graph** | Home recommendations, Learning Around Me, Clips loop | no |
 
+### 7.1 Phases D–F — what landed, and what the audit got wrong again
+
+| Change | Where |
+| --- | --- |
+| Explorables: `number_line` and `timeline` on a lesson's representation section | `lyo_app/ai/lesson_composer.py`, `web/src/lib/explorable.mjs`, `ExplorableBlock.tsx` |
+| Test Prep teaches and grades, so it produces evidence at all | `lyo_app/api/v1/stream_lyo2.py` |
+| Home recommendations from the learner's own record, with reasons | `lyo_app/personalization/recommendations.py`, `NextForYou.tsx` |
+| The classroom's failure path teaches instead of dead-ending | `lyo_app/ai_classroom/scene_lifecycle_engine.py` |
+| One SM-2 and one schedule for both surfaces | `lyo_app/personalization/spaced_repetition.py` |
+| One key per skill, with a merging migration | `alembic/versions/skillkey_001_*` |
+
+**Three things this document said that were wrong**, all the same mistake —
+recommending convergence onto the table with the better schema rather than the
+one with the data:
+
+1. `personalization` onto `ai_classroom.MasteryState` (corrected in §2.3).
+2. `SpacedRepetitionSchedule` folds into `ReviewSchedule`, "the latter is more
+   complete". Backwards for the same reason: `ReviewSchedule`'s only writers
+   have no callers, so the classroom's `/review/today` served an empty queue to
+   every learner while they had items genuinely due in the other table.
+3. `LearnerMastery` should become a read-through adapter. With both tables now
+   fed from one event stream they already agree, and turning the DKT estimate
+   into a facade over a simpler score would be a downgrade, not a convergence.
+   The step is dropped rather than deferred.
+
+**What Test Prep's gap actually was.** Not "it does not log evidence" — it
+never *graded* anything. Only `Intent.EXPLAIN` reached the lesson composer, so
+a learner could work through a whole test-prep session without being asked a
+question the server could mark. Adding a logging call would have done nothing.
+
+### 7.2 Two trust failures found while building the above
+
+Both were live, both on registered routes, and neither was on any list:
+
+- **Answer keys travelled with the question.** `correct_index`, the
+  explanation, and each option's `reveals` (the misconception tag naming what
+  choosing it would say about the learner) were serialised into the check
+  block and streamed to the client. The client declined to use them, and said
+  so in a comment — but a learner with the network tab open could read the
+  answer before choosing. Now stripped at all three exits: the streamed
+  lesson, the streamed planner blocks, and the conversation reload.
+- **A client could post itself to mastery.** `POST /api/v1/evolution/events`
+  accepted `evidence_type`, `evidence_confidence`, `measurable_outcome` and
+  `skill_ids_json` straight from the device. A client may now say what it did,
+  never what that proved: its events are recorded as exposure with no graded
+  outcome. This is also what makes explorable engagement safe to record at
+  all.
+
 ---
 
 ## 8. Phase A — what landed

@@ -141,7 +141,10 @@ rejectPattern(
   /dueReviews\s*:\s*\[/,
   'Next-for-you seeded review list',
 );
-requireText(nextForYou, 'dueReviews()', 'Home reads the real review schedule');
+// NextForYou used to call `dueReviews()` directly. It now reads the
+// recommendations endpoint, which merges the same review schedule with the
+// concepts the learner is weakest on — a superset, from one call.
+requireText(nextForYou, '.recommendations()', 'Home reads the real review schedule');
 requireText(nextForYou, 'reviewEntryHref', 'Due reviews route through the entry contract');
 requireText(entryContract, "mode: 'review'", 'Due reviews enter Classroom review mode');
 // Retrieval must be generated fresh; replaying the stored question is a worse
@@ -246,6 +249,21 @@ requireText(explorableBlock, 'recordExposure(', 'Explorable does not record enga
 for (const claim of ['evidence_type', 'evidence_confidence', 'measurable_outcome']) {
   rejectText(explorableBlock, claim, `Explorable declares its own ${claim}`);
 }
+
+// ── 3e. "For you" means something ──────────────────────────────────────────
+//
+// Home headed the first four rows of the catalogue "Recommended For You" —
+// identical for every learner. Not invented data, but a claim about the
+// learner that nothing behind it supported.
+
+rejectText(home, 'Recommended For You', 'Home calls the catalogue personalised');
+// The reason a thing was chosen is assembled server-side, so every client
+// says the same thing about the same learner — and so the learner can
+// disagree with it.
+requireText(nextForYou, '{item.detail}', 'Recommendations do not say why they were chosen');
+// A failed call leaves the section silent rather than filled with something
+// invented to occupy the space.
+requireText(nextForYou, 'setItems([])', 'A failed recommendation call is not handled silently');
 
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 

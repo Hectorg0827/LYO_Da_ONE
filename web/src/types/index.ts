@@ -150,6 +150,26 @@ export interface ConceptSummary {
   total: number;
 }
 
+/**
+ * One concrete next thing to do, and why it was chosen.
+ *
+ * The reason is assembled server-side so every client says the same thing
+ * about the same learner — and so a learner can disagree with it, which is
+ * what makes a recommendation honest rather than oracular.
+ */
+export interface Recommendation {
+  concept_id: string;
+  reason: 'due_for_review' | 'needs_practice';
+  detail: string;
+  /** 0..1, or null when never assessed. Null and zero are different claims. */
+  mastery?: number | null;
+  days_overdue: number;
+}
+
+export interface RecommendationList {
+  items: Recommendation[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';

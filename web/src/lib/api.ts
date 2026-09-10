@@ -2,6 +2,7 @@ import type {
   User,
   ChatBlock,
   ConceptSummary,
+  RecommendationList,
   CheckAnswerResult,
   SessionSummary,
   DueReviewItem,
@@ -728,6 +729,20 @@ export const api = {
      */
     async conceptSummary() {
       return request<ConceptSummary>('/api/v1/personalization/concepts/summary');
+    },
+
+    /**
+     * What this learner should do next, with the reason attached — drawn from
+     * their own review schedule and mastery profile.
+     *
+     * Empty when there is no basis for a recommendation. Home stays silent in
+     * that case rather than filling the space with the catalogue and calling
+     * it "for you", which is what this replaced.
+     */
+    async recommendations(limit = 4) {
+      return request<RecommendationList>(
+        `/api/v1/personalization/recommendations?limit=${limit}`
+      );
     },
   },
 

@@ -400,7 +400,8 @@ export default function HomePage() {
   // sourced from every course a course card's Start action has actually
   // saved (see /classroom's upsertCourseOnStart effect and CoursePlayer's
   // progress sync) — NOT the generic catalog list used below for
-  // Recommended For You.
+  // The catalogue grid below. Not personalised — see <NextForYou /> for the
+  // learner's actual recommendations.
   const STATUS_LABEL: Record<string, string> = {
     not_started: 'Not started',
     in_progress: 'In progress',
@@ -443,7 +444,7 @@ export default function HomePage() {
   });
 
   // Map API courses to recommended format
-  const recommendedCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({
+  const catalogueCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({
     id: String(c.id ?? i),
     title: (c.title as string) || 'Untitled Course',
     category: (c.subject as string) || (c.category as string) || 'General',
@@ -739,17 +740,26 @@ export default function HomePage() {
           "Daily Challenges" list with invented progress values. */}
       <NextForYou />
 
-      {/* ── Recommended For You ───────────────────────────────── */}
+      {/* ── Browse the catalogue ──────────────────────────────────
+          This was headed "Recommended For You" over `courses.list(0, 4)` —
+          the first four rows of the catalogue, identical for every learner.
+          Not invented data, but a claim about the learner ("for you") that
+          nothing behind it supported.
+
+          Real recommendations live in <NextForYou /> above, drawn from this
+          learner's own review schedule and mastery profile, each carrying the
+          reason it was chosen. The catalogue is still worth browsing; it just
+          is not personalised, so it no longer says it is. */}
       <motion.div variants={itemVariants}>
-        <SectionHeader title="Recommended For You" href="/discover" icon={Star} />
-        {recommendedCourses.length === 0 ? (
+        <SectionHeader title="Browse the catalogue" href="/discover" icon={Star} />
+        {catalogueCourses.length === 0 ? (
           <div className="glass-card p-6 flex flex-col items-center gap-2 text-center">
             <Star size={28} className="text-secondary" />
-            <p className="text-sm text-secondary">Recommendations will appear as you learn more</p>
+            <p className="text-sm text-secondary">Courses will appear here as they are published</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {recommendedCourses.map((course) => (
+            {catalogueCourses.map((course) => (
               <Link
                 key={course.id}
                 href={`/courses/${course.id}`}
