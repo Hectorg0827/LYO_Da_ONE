@@ -14,7 +14,7 @@
  * See docs/CLASSROOM_ARCHITECTURE.md sections 5 and 6.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
@@ -287,6 +287,29 @@ requireText(apiClient, 'optionalAuth', 'API client cannot make a call guest-safe
 // irreversible before it answers.
 requireText(apiClient, 'classifyAuthFailure(', 'The 401 decision is not delegated to a tested rule');
 requireText(authFailureTest, 'classifyAuthFailure', 'The 401 rule is not exercised by tests');
+
+// ...and a test that exists but never runs is worse than no test, because it
+// reads as coverage. The web CI job used to name three test files by hand, so
+// two suites added later — explorable and this one — sat green by absence.
+// Assert the whole chain: CI runs `npm test`, `npm test` is a glob, and every
+// suite on disk is therefore reached.
+const ciWorkflow = read('.github/workflows/ci.yml');
+const webTestScript = JSON.parse(read('web/package.json')).scripts?.test ?? '';
+requireText(ciWorkflow, 'run: npm test', 'The web CI job does not run the web unit tests');
+requireText(webTestScript, 'src/lib/*.test.mjs', 'The web test script names files instead of globbing');
+// Named per suite, so relaxing the script back to a hand-written list fails
+// with the name of the file that would have stopped running.
+const runnable = webTestScript
+  .split(/\s+/)
+  .filter((word) => word.endsWith('.test.mjs'))
+  .map((word) => new RegExp(`^${word.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`));
+for (const suite of readdirSync(new URL('../web/src/lib', import.meta.url))) {
+  if (!suite.endsWith('.test.mjs')) continue;
+  const path = `src/lib/${suite}`;
+  if (!runnable.some((pattern) => pattern.test(path))) {
+    failures.push(`A test suite exists but never runs in CI: ${path}`);
+  }
+}
 
 // Every outcome must still be handled. Dropping a case collapses it into the
 // default — which clears tokens and navigates to /auth/login — and that is
