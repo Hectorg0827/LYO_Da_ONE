@@ -294,6 +294,61 @@ never *graded* anything. Only `Intent.EXPLAIN` reached the lesson composer, so
 a learner could work through a whole test-prep session without being asked a
 question the server could mark. Adding a logging call would have done nothing.
 
+### 7.3 Phase E — the study plan had its own opinion of the learner
+
+Phase E was the one row of the table above that was never built. The
+"I Have a Test" system is real and live — `/api/v1/me/study_plans`, registered
+in `lyo_app/api/v1/__init__.py`, called by iOS — but it was an island.
+
+| Change | Where |
+| --- | --- |
+| A session's score is derived from evidence, never declared by the client | `lyo_app/study_plans/session_outcome.py` |
+| A plan's topics join to the learner's canonical record | `lyo_app/study_plans/topic_standing.py` |
+| Readiness for one test, weighted by topic | `GET /me/study_plans/plans/{id}/readiness` |
+| A session carries the concept id the Classroom teaches from | `StudySessionRead.concept_id` |
+
+**A third client-declared-truth violation.** `POST
+/me/study_plans/sessions/{id}/complete` took `performance_score` as a
+*required query parameter* — the device saying how well its owner had done —
+stored it as the learner's performance, and `get_plan_stats` averaged those
+numbers into `mastery_by_topic`. Any learner with a token could post
+themselves to full marks on every topic of their exam. This is the same rule
+broken in §7.2 twice over, on a route nobody had looked at.
+
+The score is now read back out of the evidence the server itself recorded
+while the session was open. Where nothing was graded the session completes
+with **no score at all**, because a session spent reading is a real session
+and measuring it would be an invention.
+
+**Deciding what counts as a demonstration is `measurable_outcome`, not the
+rung.** A wrong answer and a lesson delivered both sit on `exposure` at zero
+confidence, so reading the rung alone would score a click on an explorable as
+a failed attempt. `project_event_to_mastery_state` already had to answer this
+question; `session_outcome` deliberately uses the same test rather than a
+second one, since two places deciding "was this a demonstration" by different
+rules is exactly how the surfaces drifted apart to begin with.
+
+**Never assessed is not assessed at zero — except where it is.** A topic the
+learner has never been measured on reports `mastery: null`, and
+`mastery_by_topic` omits it, so a heatmap cannot render "nothing yet" and
+"measured, got nothing" as the same cell. But that same topic contributes
+*zero* to readiness, because for "am I ready for Friday" a topic you have
+shown nothing on is a topic you are not ready for. The two judgements look
+contradictory and are not: one is about a concept, the other about an exam.
+
+**What mutation testing changed.** `weakest_topics` originally ranked every
+never-assessed topic above every measured one. Breaking that rule and watching
+no test fail exposed that the rule itself was wrong: it would send a learner
+to a topic worth one percent of the paper they had not started, ahead of one
+worth forty they had attempted and got entirely wrong. Both have nothing
+demonstrated, so weight breaks the tie.
+
+**Not done, deliberately.** The backend now carries `concept_id` on every
+session read, so a scheduled session *can* open the Classroom on its topic.
+No client surface uses it yet: the web app has no test-prep screen at all, and
+building an iOS one is product work rather than wiring. Stated here rather
+than implied by the phase being ticked.
+
 ### 7.2 Two trust failures found while building the above
 
 Both were live, both on registered routes, and neither was on any list:
