@@ -37,17 +37,35 @@ export function canRenderBlock(block: ChatBlock | null | undefined): boolean {
         str('question') && Array.isArray(content.options) && content.options.length > 0
       );
 
+    // ExplorableBlock needs a kind and at least two points to draw a track
+    // between. Any other interactive subtype reaches GenericBlock, so it is
+    // judged by the same chain as the default case — not by falling out of
+    // the switch, which would return undefined and quietly hide the prose
+    // fallback along with the block.
+    case 'interactive':
+      return block.subtype === 'explorable'
+        ? str('kind') && Array.isArray(content.points) && content.points.length >= 2
+        : genericChain(str, content);
+
     // Mirrors GenericBlock's fallback chain, in the same order.
     default:
-      return (
-        str('code') ||
-        str('front') ||
-        (typeof content.completed === 'number' && typeof content.total === 'number') ||
-        (Array.isArray(content.items) && content.items.length > 0) ||
-        str('url') ||
-        str('text') ||
-        str('title') ||
-        str('source')
-      );
+      return genericChain(str, content);
   }
+}
+
+/** GenericBlock's fallback chain, in the same order it tries them. */
+function genericChain(
+  str: (key: string) => boolean,
+  content: Record<string, unknown>
+): boolean {
+  return (
+    str('code') ||
+    str('front') ||
+    (typeof content.completed === 'number' && typeof content.total === 'number') ||
+    (Array.isArray(content.items) && content.items.length > 0) ||
+    str('url') ||
+    str('text') ||
+    str('title') ||
+    str('source')
+  );
 }

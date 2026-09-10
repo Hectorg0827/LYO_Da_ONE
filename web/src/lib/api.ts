@@ -692,6 +692,29 @@ export const api = {
     },
   },
 
+  // ── Learning activity ──
+  learning: {
+    /**
+     * Record that the learner engaged with a representation of a concept.
+     *
+     * This is *exposure* — they met the idea. It is not a demonstration, and
+     * this call cannot make it one: the server records any client-submitted
+     * event as exposure with no graded outcome, whatever the body claims. A
+     * demonstration has to be graded server-side.
+     */
+    async recordExposure(conceptId: string) {
+      return request('/api/v1/evolution/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: 0, // replaced server-side by the authenticated user
+          event_type: 'AI_SESSION',
+          concept_id: conceptId,
+          source_surface: 'chat',
+        }),
+      });
+    },
+  },
+
   // ── Learner model ──
   personalization: {
     /**

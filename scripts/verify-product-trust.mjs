@@ -226,6 +226,27 @@ requireText(checkBlock, 'result!.correct_index', 'Check marks the right option f
 // learner. They are the server's diagnosis, not something to render at them.
 rejectText(checkBlock, 'option.reveals', 'Check renders an internal misconception tag');
 
+// ── 3d. Explorables prove exposure, never more ──────────────────────────────
+//
+// A representation the learner can move through is a real teaching device,
+// but manipulating one is not a demonstration. If engaging with it could
+// award a rung, every lesson becomes a slider a learner can drag to mastery.
+
+const explorable = readCode('web/src/lib/explorable.mjs');
+const explorableBlock = readCode('web/src/components/chat/blocks/ExplorableBlock.tsx');
+
+requireText(
+  explorable,
+  "EXPLORABLE_EVIDENCE_KIND = 'exposure'",
+  'Explorable engagement claims more than exposure'
+);
+
+// The component reports engagement; it never states what that proved.
+requireText(explorableBlock, 'recordExposure(', 'Explorable does not record engagement');
+for (const claim of ['evidence_type', 'evidence_confidence', 'measurable_outcome']) {
+  rejectText(explorableBlock, claim, `Explorable declares its own ${claim}`);
+}
+
 // ── 4. One consumer brand ────────────────────────────────────────────────────
 
 for (const [source, label] of [
