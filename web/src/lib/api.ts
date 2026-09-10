@@ -1,3 +1,9 @@
+import {
+  classifyAuthFailure,
+  NOT_SIGNED_IN,
+  REQUEST_FAILED,
+  RETURN_RETRY,
+} from '@/lib/auth-failure.mjs';
 import type {
   User,
   ChatBlock,
@@ -93,36 +99,54 @@ async function request<T>(
   });
 
   if (res.status === 401 && !skipAuth) {
-    // The refresh runs for optional calls too. Skipping the whole branch was
-    // an over-correction: a signed-in learner with a merely *expired* access
-    // token would never refresh on these, so the concept headline and Next
-    // for you would sit empty for the whole visit — `useApi` does not retry
-    // after some other request later refreshes the token.
+    // The refresh runs for every call, optional ones included: a learner with
+    // a merely *expired* access token must not have their Home sections sit
+    // empty for the visit because `useApi` never retries.
     const refreshed = await tryRefreshToken();
+
+    let retry: Response | null = null;
     if (refreshed) {
       headers['Authorization'] = `Bearer ${getAccessToken()}`;
-      const retry = await fetch(`${API_URL}${endpoint}`, {
-        ...fetchOptions,
-        headers,
-      });
-      if (retry.ok) {
-        if (retry.status === 204) return undefined as T;
-        return retry.json();
+      retry = await fetch(`${API_URL}${endpoint}`, { ...fetchOptions, headers });
+    }
+
+    // The decision lives in `auth-failure.mjs`, where it can be tested. This
+    // branch has been wrong three times running, each fix causing the next
+    // problem, and every guard on it was a source-text assertion.
+    switch (
+      classifyAuthFailure({
+        refreshed,
+        retryStatus: retry ? retry.status : null,
+        optionalAuth: Boolean(optionalAuth),
+      })
+    ) {
+      case RETURN_RETRY:
+        if (retry!.status === 204) return undefined as T;
+        return retry!.json();
+
+      case REQUEST_FAILED: {
+        // The refresh worked, so the learner is signed in. Whatever the
+        // retried call returned is a fact about that call — surfacing it as a
+        // logout both misleads the caller and, on a required call, throws a
+        // signed-in learner out over an unrelated server error.
+        const body = await retry!.json().catch(() => ({ detail: 'Request failed' }));
+        throw new ApiError(
+          body.detail || body.message || `HTTP ${retry!.status}`,
+          retry!.status
+        );
       }
-    }
 
-    // What `optionalAuth` actually buys: the refresh was tried and failed, or
-    // there was never a session. For a supplementary call that means "no data
-    // for you", not "you are logged out" — so it throws for the caller to
-    // swallow rather than clearing the session and navigating away from the
-    // front door a guest is standing in.
-    if (optionalAuth) {
-      throw new ApiError('Not signed in', 401);
-    }
+      case NOT_SIGNED_IN:
+        // Supplementary call, no usable session. "No data for you", not "you
+        // are logged out": the caller swallows it and the guest keeps the
+        // front door they are standing in.
+        throw new ApiError('Not signed in', 401);
 
-    clearTokens();
-    if (typeof window !== 'undefined') window.location.href = '/auth/login';
-    throw new ApiError('Session expired', 401);
+      default:
+        clearTokens();
+        if (typeof window !== 'undefined') window.location.href = '/auth/login';
+        throw new ApiError('Session expired', 401);
+    }
   }
 
   if (!res.ok) {

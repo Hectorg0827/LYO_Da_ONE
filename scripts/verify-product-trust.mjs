@@ -275,13 +275,40 @@ requireText(nextForYou, 'setItems([])', 'A failed recommendation call is not han
 
 const apiClient = readCode('web/src/lib/api.ts');
 const explorableBlock2 = readCode('web/src/components/chat/blocks/ExplorableBlock.tsx');
+const authFailureTest = readCode('web/src/lib/auth-failure.test.mjs');
 
 requireText(apiClient, 'optionalAuth', 'API client cannot make a call guest-safe');
-// The optional call must still refresh an expired token — skipping the whole
-// 401 branch left a signed-in learner's Home sections empty for the visit —
-// and must throw instead of navigating away once that refresh has failed.
-requireText(apiClient, 'if (optionalAuth) {', 'An optional 401 still redirects to login');
-rejectText(apiClient, '!skipAuth && !optionalAuth', 'Optional calls skip the token refresh');
+
+// The 401 branch itself has now been wrong three times running, each fix
+// causing the next problem, and every guard on it was a source assertion like
+// these. So the decision was moved into `classifyAuthFailure`, where the four
+// outcomes are unit-tested directly, and what is left to assert here is only
+// the wiring: that `request()` still asks that rule, and does nothing
+// irreversible before it answers.
+requireText(apiClient, 'classifyAuthFailure(', 'The 401 decision is not delegated to a tested rule');
+requireText(authFailureTest, 'classifyAuthFailure', 'The 401 rule is not exercised by tests');
+
+// Every outcome must still be handled. Dropping a case collapses it into the
+// default — which clears tokens and navigates to /auth/login — and that is
+// precisely the bug each of the three rounds ended in.
+for (const outcome of ['RETURN_RETRY', 'REQUEST_FAILED', 'NOT_SIGNED_IN']) {
+  requireText(apiClient, `case ${outcome}:`, `A 401 outcome falls through to logout: ${outcome}`);
+}
+
+// Everything between recognising the 401 and asking the rule: the refresh
+// must happen for optional calls too (skipping it left a signed-in learner's
+// Home sections empty for the whole visit), and nothing may log anyone out
+// before the rule has decided anything.
+const branchStart = apiClient.indexOf('res.status === 401');
+const decisionAt = apiClient.indexOf('classifyAuthFailure(');
+// If either anchor is gone the requires above already fail; an empty slice
+// keeps the rejects from reporting nonsense on top of the real message.
+const beforeDecision =
+  branchStart === -1 || decisionAt === -1 ? '' : apiClient.slice(branchStart, decisionAt);
+requireText(beforeDecision, 'await tryRefreshToken()', 'An expired token is not refreshed before deciding');
+rejectText(beforeDecision, 'optionalAuth', 'Optional calls skip the token refresh');
+rejectText(beforeDecision, 'clearTokens()', 'Tokens are cleared before the 401 is classified');
+rejectText(beforeDecision, 'window.location', 'The learner is redirected before the 401 is classified');
 for (const [call, label] of [
   ['concepts/summary', 'Concept summary'],
   ['recommendations?limit=', 'Recommendations'],
