@@ -346,7 +346,11 @@ for (const [call, label] of [
   // ended in a plain `);`, and its `optionalAuth` then satisfied this check.
   const bounds = [rest.indexOf('});'), rest.indexOf('async ')].filter((i) => i !== -1);
   const thisCall = bounds.length ? rest.slice(0, Math.min(...bounds)) : rest.slice(0, 400);
-  requireText(thisCall, 'optionalAuth', `${label} can evict a guest from Home`);
+  // `optionalAuth: true`, not bare `optionalAuth`: the loose form is satisfied
+  // by `optionalAuth: false`, which regresses the behaviour completely, and by
+  // a misspelled key, which `request()` would silently ignore. A sibling check
+  // on the test-prep page passed for exactly that reason until it was mutated.
+  requireText(thisCall, 'optionalAuth: true', `${label} can evict a guest from Home`);
 }
 
 // ── 3i. Test prep never reports a measurement nobody took ───────────────────
