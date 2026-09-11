@@ -555,20 +555,27 @@ struct LyoOverlayView: View {
             )
 
         case .studyPlan:
-            // Stage B2 — persist the plan to backend so it survives app
-            // restart. Fire-and-forget; if auth fails we fall through to
-            // the chat-only path so the user still gets a useful response.
-            Task {
-                try? await StudyPlanService.shared.create(
-                    StudyPlanRecordCreate(
-                        subject: card.payload.subject ?? card.payload.topic ?? "Study session",
-                        topics: card.payload.topics,
-                        deadline: card.payload.deadline,
-                        dailyBreakdown: [],  // populated in a later stage from the AI's reply
-                        sourceConversationId: nil
-                    )
-                )
-            }
+            // The plan lives in this chat thread and nowhere else.
+            //
+            // There used to be a fire-and-forget call here claiming to
+            // "persist the plan to backend so it survives app restart". It
+            // did not. It POSTed to /api/v1/me/study_plans, a path the server
+            // registers for GET only, so every call was a 405 — and `try?`
+            // swallowed it, so nothing ever surfaced. The rest of
+            // StudyPlanService was worse than unused: its model could not
+            // decode what the server sends (`id` is a UUID string, not an
+            // Int, and `subject`/`topics`/`daily_breakdown` do not exist on
+            // StudyPlanRead at all), so had anything called it, it would have
+            // thrown on the first response.
+            //
+            // The server does build durable plans, through a conversational
+            // intake — POST /me/study_plans/intake/turn, then
+            // /plans/generate — which produces a TestProfile, a StudyPlan and
+            // its StudySessions. Wiring iOS to that is a real feature and is
+            // not done. Leaving a call that looks like persistence in its
+            // place is worse than the gap, because it hides the gap.
+            //
+            // See docs/CLASSROOM_ARCHITECTURE.md §7.4.
 
             // Re-prompt Lyo with a structured planning request so the AI builds
             // the plan inline. The chat thread becomes the plan thread.

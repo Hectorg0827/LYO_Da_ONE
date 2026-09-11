@@ -14,7 +14,6 @@
 		0301810B6A37F883C8789C0C /* BottomDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D9531D110247DF7E7AC533 /* BottomDock.swift */; };
 		031BA7705EB7D31F8D1FEC61 /* ConceptComparisonCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E373EA9564518FB7B8031A /* ConceptComparisonCard.swift */; };
 		0326527606BCE9EF5BF1E7BA /* MessageIntentClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207E2855711409218635E9E /* MessageIntentClassifier.swift */; };
-		034A8FB86FC4821DBA3BF61E /* StudyPlanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6294CB537351AB8E0B41B9E /* StudyPlanService.swift */; };
 		0360F9CAC4A11747C2647505 /* DiscoverReelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3773C4873A63BDF8DEA2722F /* DiscoverReelView.swift */; };
 		043473625795702D6ADE062C /* A2UIMiscRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB186FA5C7D59A298A4BE54 /* A2UIMiscRenderers.swift */; };
 		0449C049698ED8376C6FD904 /* CourseGenerationService.swift.bak in Resources */ = {isa = PBXBuildFile; fileRef = 196F76297C88BBF33658A558 /* CourseGenerationService.swift.bak */; };
@@ -193,7 +192,6 @@
 		62465924E084C31D710A6FEC /* CourseGenerationStreamingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4626783221A90C29A79B49 /* CourseGenerationStreamingClient.swift */; };
 		6281093A17F709F43C47DD08 /* CourseShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5215209E95C644E2A1982F1E /* CourseShareService.swift */; };
 		628C3CFE378378475D37CB8C /* A2UIMiscViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2251FC1DE2DE85AE6BFE00CB /* A2UIMiscViews.swift */; };
-		62D34B2E2C85637195F76CC5 /* StudyPlanRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D382E34164375B99281E42E /* StudyPlanRecord.swift */; };
 		63BE157BC71AB485AF0E4A48 /* DefaultSocialRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15920EB95AE0C7AFC1922271 /* DefaultSocialRepository.swift */; };
 		63CF8E055AFA4D946EF6C21C /* NewFeatureServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B633F7F1A8807D36894F0 /* NewFeatureServices.swift */; };
 		647247E1AB7C829941DF29D5 /* AICommandHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B5001B46EEF3365C9C2872 /* AICommandHandler.swift */; };
@@ -579,7 +577,6 @@
 		2C6C182D8C547AE2ECF3F3E0 /* NotificationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRepository.swift; sourceTree = "<group>"; };
 		2CD71B667CD6A15A0ECB89C6 /* SuggestionChipsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestionChipsView.swift; sourceTree = "<group>"; };
 		2CE894BD96BA849DE4CDB8AD /* CreateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateViewModel.swift; sourceTree = "<group>"; };
-		2D382E34164375B99281E42E /* StudyPlanRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyPlanRecord.swift; sourceTree = "<group>"; };
 		2D3B157BE1E108759053B35A /* CourseProposalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CourseProposalView.swift; sourceTree = "<group>"; };
 		2F0732C42EAC4B5AD46632BF /* VoiceInputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputService.swift; sourceTree = "<group>"; };
 		2F3449E067B067849B91B3C5 /* TestPrepProgressBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPrepProgressBubbleView.swift; sourceTree = "<group>"; };
@@ -927,7 +924,6 @@
 		F45C09683B075A73F99B62A3 /* CourseOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CourseOrchestrator.swift; sourceTree = "<group>"; };
 		F476EA06E209E75812B6DCBA /* LeaderboardRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardRowView.swift; sourceTree = "<group>"; };
 		F4CB36EE9370DB07B3DA539F /* ChallengeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChallengeModels.swift; sourceTree = "<group>"; };
-		F6294CB537351AB8E0B41B9E /* StudyPlanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyPlanService.swift; sourceTree = "<group>"; };
 		F67500EDB27324B6EB120734 /* DefaultTTSRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultTTSRepository.swift; sourceTree = "<group>"; };
 		F7B0B0F6417620C1C0D74271 /* ReelHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderView.swift; sourceTree = "<group>"; };
 		F7BCB3A7F0D0CAA5622726E9 /* NotificationExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationExtensions.swift; sourceTree = "<group>"; };
@@ -1619,7 +1615,6 @@
 				C5C98B5B4523D1A9A5240C0C /* SoftSkillsService.swift */,
 				41DEC95DAB811DCF82A42EB1 /* StackService.swift */,
 				9D2B0B4102E19582168918C6 /* StoryService.swift */,
-				F6294CB537351AB8E0B41B9E /* StudyPlanService.swift */,
 				2F6F0062FEF170B444103538 /* SyncService.swift */,
 				A685F7C59FE3C5447930D32E /* TestPrepOrchestrator.swift */,
 				703CD7916A82CAE86FA0175B /* TestPrepService.swift */,
@@ -1861,7 +1856,6 @@
 				CA3E6AA6FF92A757DE441E63 /* SmartBlock.swift */,
 				BC8E418CA11F7EE2C54E7937 /* SocialModels.swift */,
 				CE751B4A93847FB8E9BFD7EB /* StackModels.swift */,
-				2D382E34164375B99281E42E /* StudyPlanRecord.swift */,
 				F404A29F5179C931DADCE0DE /* SuggestedActionCard.swift */,
 				138DADB848E1A09D8B3524C6 /* TutorModels.swift */,
 				468F4636A36C2560D5C10EDE /* UIStackModels.swift */,
@@ -2528,8 +2522,6 @@
 				BAC616AABD4AFBE2D1EC004B /* StudyGroupDetailView.swift in Sources */,
 				611446F7E0FEB3E2DD77B4B7 /* StudyPlanBubbleView.swift in Sources */,
 				CAFFC47F7E6D686D3CFF9551 /* StudyPlanCard.swift in Sources */,
-				62D34B2E2C85637195F76CC5 /* StudyPlanRecord.swift in Sources */,
-				034A8FB86FC4821DBA3BF61E /* StudyPlanService.swift in Sources */,
 				C1A868F5F93A901E3DE17A2F /* StudyPlanView.swift in Sources */,
 				77461B8A9580F00CD391957A /* SubscriptionView.swift in Sources */,
 				50D56E7CA37728D4A97777A0 /* SuggestedActionCard.swift in Sources */,

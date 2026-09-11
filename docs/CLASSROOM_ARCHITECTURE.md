@@ -367,6 +367,58 @@ Both were live, both on registered routes, and neither was on any list:
   outcome. This is also what makes explorable engagement safe to record at
   all.
 
+### 7.4 iOS study plans persisted nothing, and said they did
+
+Found while scoping the one open Phase E item — a client surface that opens the
+Classroom from a scheduled session. There was no surface to extend: iOS's whole
+study-plan integration was inert, and had been.
+
+`LyoOverlayView` ran this when a learner accepted a study-plan card:
+
+> Stage B2 — persist the plan to backend so it survives app restart.
+> Fire-and-forget; if auth fails we fall through to the chat-only path.
+
+It POSTed to `/api/v1/me/study_plans`. From the live route table — the actual
+registered routes, not a reading of the source — that path carries **GET only**:
+
+```
+['GET']  /me/study_plans
+['POST'] /me/study_plans/intake/turn
+['POST'] /me/study_plans/plans/generate
+```
+
+So every call was a 405, and `try?` discarded it. No learner's plan was ever
+saved, and nothing ever said so.
+
+The rest was worse than unused. `StudyPlanService.fetch/get/update/delete` had
+**no callers anywhere**, and `StudyPlanRecord` could not have decoded a real
+response if they had: it declares `id: Int` where the server sends a UUID
+string, and requires `subject`, `topics` and `daily_breakdown`, none of which
+exist on `StudyPlanRead`. Its doc comment says it mirrors
+`StudyPlanRecordRead` — a schema that is not in the codebase.
+
+There was therefore no field-renaming fix available. The shape iOS wanted
+corresponds to nothing the server has: the server builds a plan from a
+`TestProfile` through a conversational intake, producing a `StudyPlan` and its
+`StudySession` rows.
+
+**What was removed:** `StudyPlanService.swift`, `StudyPlanRecord.swift`, the
+`StudyPlansAPI` endpoint enum, the `create` call site, and the eight
+`project.pbxproj` entries for the two files, deleted by UUID so a local
+checkout opens without regenerating. Behaviour-preserving: the call was
+fire-and-forget, so nothing a learner sees changes. `verify-classroom-parity`
+fails if either file returns or if a client POSTs to that path again.
+
+**What this leaves open.** iOS has no study-plan persistence. That is now the
+honest state rather than a hidden one, and it is a prerequisite for the
+Classroom entry point, not a substitute for it. Wiring iOS to `intake/turn`
+then `plans/generate` is a real feature and is not done.
+
+**Why not just add a POST route.** It would be the fourth time this codebase
+solved a mismatch by building a second path alongside the one that works —
+see the three corrections in §7.1. Plan creation already exists; a parallel
+endpoint would split it.
+
 ---
 
 ## 8. Phase A — what landed

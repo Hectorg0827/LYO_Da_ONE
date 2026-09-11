@@ -115,6 +115,42 @@ for (const path of REMOVED_IOS_CLASSROOMS) {
   }
 }
 
+// ── iOS study plans: no pretend persistence ─────────────────────────────────
+//
+// StudyPlanService claimed to persist a learner's study plan and did not. It
+// POSTed to /api/v1/me/study_plans, which the server registers for GET only,
+// so every call was a 405 that `try?` swallowed; and StudyPlanRecord could not
+// have decoded a real response anyway (`id` is a UUID string on the wire, not
+// an Int, and subject/topics/daily_breakdown are not on StudyPlanRead).
+//
+// Code that looks like persistence and is not hides the gap it leaves. The
+// server does build durable plans, through intake/turn then plans/generate;
+// until a client is wired to that, the honest state is no client integration.
+const REMOVED_IOS_STUDY_PLANS = [
+  'Sources/Services/StudyPlanService.swift',
+  'Sources/Models/StudyPlanRecord.swift',
+];
+
+for (const path of REMOVED_IOS_STUDY_PLANS) {
+  if (existsSync(new URL(`../${path}`, import.meta.url))) {
+    failures.push(
+      `iOS study plans: ${path} is back — it never persisted anything (see docs/CLASSROOM_ARCHITECTURE.md §7.4)`
+    );
+  }
+}
+
+// The specific call that 405'd. A client may read the plan list from this
+// path; creating one goes through the intake flow, never a POST here.
+for (const [file, label] of [
+  ['Sources/Core/Networking/Endpoint.swift', 'iOS endpoints'],
+  ['Sources/Views/Main/Hybrid/LyoOverlayView.swift', 'iOS chat overlay'],
+]) {
+  const source = read(file);
+  if (/case\s+\.create:\s*\n\s*return\s+"\/api\/v1\/me\/study_plans"/.test(source)) {
+    failures.push(`${label}: POST /api/v1/me/study_plans is a 405 — the server registers GET only`);
+  }
+}
+
 if (failures.length) {
   console.error('AI Classroom parity gate failed:\n');
   failures.forEach((failure) => console.error(`- ${failure}`));
