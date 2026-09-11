@@ -420,6 +420,26 @@ requireText(testPrepTest, 'completionSummary', 'The completion rules are not exe
 // satisfied while the page still said "Nothing scheduled for today".
 requireText(testPrepPage, 'could not load today', 'A failed sessions load is indistinguishable from an empty day');
 
+// A failed refresh is not evidence the plan is gone. Falling back to intake
+// would drop a learner who has a plan into the conversation that builds one,
+// and they would end up with a second plan because a request happened to
+// fail. Matched as a whole phrase, so renaming the ref breaks the check
+// rather than silently satisfying it.
+requireText(
+  testPrepPage,
+  "if (!hasPlan.current) setStage('intake')",
+  'A failed refresh sends a learner who has a plan back to intake'
+);
+
+// Refreshing after finishing a session must not blank the page: the plan view
+// unmounting mid-read takes whatever the learner was being told with it,
+// which is how the completion summary went unseen entirely.
+requireText(
+  testPrepPage,
+  'if (!loadedOnce.current) setLoading(true)',
+  'A refresh unmounts the plan view'
+);
+
 // The score is the server's to determine. Sending one is the exact §30
 // violation this endpoint was fixed for, whatever the field is called.
 rejectText(apiClient, 'performance_score=', 'The client sends its own session score');

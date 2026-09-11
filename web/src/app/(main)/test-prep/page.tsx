@@ -21,8 +21,6 @@ import {
 } from '@/lib/test-prep.mjs';
 import type { ReadinessPayload, StudySessionRow } from '@/types';
 
-type Finished = { sessionId: string; text: string };
-
 /**
  * Test Prep — the face on a learner loop that had none.
  *
@@ -61,7 +59,14 @@ export default function TestPrepPage() {
   const [failed, setFailed] = useState(false);
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [finishing, setFinishing] = useState<string | null>(null);
-  const [finished, setFinished] = useState<Finished | null>(null);
+  // Page-level, not per row. The row disappears on the next refresh — the
+  // server has marked the session completed and `openSessions` filters it out
+  // — so a notice rendered inside it is destroyed before it can be read.
+  const [notice, setNotice] = useState<string | null>(null);
+  // A refresh must not un-know a plan we have already seen. Held in a ref so
+  // `loadPlan` reads the current value rather than one closed over at mount.
+  const hasPlan = useRef(false);
+  const loadedOnce = useRef(false);
 
   // Intake conversation
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -72,7 +77,10 @@ export default function TestPrepPage() {
   const startedIntake = useRef(false);
 
   const loadPlan = useCallback(async () => {
-    setLoading(true);
+    // Only the first load blanks the page. A refresh — after finishing a
+    // session, say — would otherwise unmount the plan view mid-read and take
+    // whatever the learner was being told with it.
+    if (!loadedOnce.current) setLoading(true);
     setFailed(false);
     try {
       const plans = await api.testPrep.plans();
@@ -86,6 +94,7 @@ export default function TestPrepPage() {
         return;
       }
       setPlanId(plan.id);
+      hasPlan.current = true;
       setStage('plan');
       // Both are supplementary to the page, so one failing must not blank the
       // other — and neither may be replaced by a placeholder.
@@ -107,11 +116,15 @@ export default function TestPrepPage() {
         setSessionsFailed(true);
       }
     } catch {
-      // A signed-out visitor has no plans, and a failed call must say so
-      // rather than render an empty plan as though it were the learner's.
-      setStage('intake');
+      // A failed request is not evidence the plan is gone. Falling back to
+      // intake here would drop a learner who has a plan into the conversation
+      // that builds one — and they would end up with a second plan because a
+      // refresh happened to fail. Only a learner we have never seen a plan
+      // for is sent to intake.
       setFailed(true);
+      if (!hasPlan.current) setStage('intake');
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
     }
   }, []);
@@ -180,10 +193,10 @@ export default function TestPrepPage() {
                 ? 'Marked done. Nothing was recorded for this session.'
                 : 'Marked done, but I could not read what was measured.';
 
-        setFinished({ sessionId, text });
+        setNotice(text);
         await loadPlan();
       } catch {
-        setFinished({ sessionId, text: 'I could not mark that done just now.' });
+        setNotice('I could not mark that done just now.');
       } finally {
         setFinishing(null);
       }
@@ -371,6 +384,12 @@ export default function TestPrepPage() {
           Today
         </div>
 
+        {notice && (
+          <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/80">
+            {notice}
+          </p>
+        )}
+
         {due.length === 0 ? (
           <p className="mt-3 text-sm text-white/60">
             {sessionsFailed
@@ -381,10 +400,6 @@ export default function TestPrepPage() {
           <ul className="mt-3 space-y-2">
             {due.map((session) => {
               const href = sessionEntryHref(session);
-              // Checked rather than optional-chained so the narrowing holds
-              // when the text is read below.
-              const note =
-                finished && finished.sessionId === session.id ? finished.text : null;
               const body = (
                 <>
                   <span className="flex-1 text-white/90">{session.topic}</span>
@@ -394,7 +409,7 @@ export default function TestPrepPage() {
                 </>
               );
               return (
-                <li key={session.id} className="space-y-2">
+                <li key={session.id}>
                   <div className="flex items-stretch gap-2">
                     {href ? (
                       <Link
@@ -426,7 +441,6 @@ export default function TestPrepPage() {
                       )}
                     </button>
                   </div>
-                  {note && <p className="px-1 text-sm text-white/60">{note}</p>}
                 </li>
               );
             })}
