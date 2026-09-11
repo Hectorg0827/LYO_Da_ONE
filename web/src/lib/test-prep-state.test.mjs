@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { initialState, sessionsNote, staleWarning, testPrepReducer } from './test-prep-state.mjs';
+import {
+  initialState,
+  sessionsNote,
+  staleWarning,
+  testPrepReducer,
+  todayCopy,
+} from './test-prep-state.mjs';
 
 /** Apply a sequence of actions, as the page would. */
 const run = (...actions) => actions.reduce(testPrepReducer, initialState);
@@ -186,4 +192,31 @@ test('a failed sessions call does not claim the whole page is stale', () => {
   const state = testPrepReducer(loaded(), { type: 'details_loaded' });
   assert.equal(staleWarning(state), null);
   assert.ok(sessionsNote(state));
+});
+
+// ─── The Today section, in every combination ─────────────────────────────────
+
+test('a sessions failure is reported whether or not rows remain', () => {
+  // The failure used to be rendered only in the empty branch, so a refresh
+  // that failed while keeping rows told the learner nothing.
+  const failed = testPrepReducer(loaded(), { type: 'details_loaded' });
+  assert.ok(todayCopy(failed, 2).note, 'silent while rows remain');
+  assert.ok(todayCopy(failed, 0).note, 'silent on an empty list');
+});
+
+test('an empty list after a failed call is not reported as an empty day', () => {
+  const failed = testPrepReducer(loaded(), { type: 'details_loaded' });
+  assert.equal(todayCopy(failed, 0).emptyMessage, null);
+});
+
+test('a genuinely empty day says so', () => {
+  const empty = testPrepReducer(loaded(), { type: 'details_loaded', sessions: [] });
+  assert.equal(todayCopy(empty, 0).emptyMessage, 'Nothing scheduled for today.');
+  assert.equal(todayCopy(empty, 0).note, null);
+});
+
+test('a working day with sessions says nothing extra', () => {
+  const copy = todayCopy(loaded(), 2);
+  assert.equal(copy.note, null);
+  assert.equal(copy.emptyMessage, null);
 });

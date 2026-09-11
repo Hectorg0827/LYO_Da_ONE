@@ -150,3 +150,36 @@ export function sessionsNote(state) {
   if (!state?.sessionsFailed) return null;
   return 'I could not load today’s sessions just now.';
 }
+
+/**
+ * What the Today section says, for every combination of list and failure.
+ *
+ * A decision rather than a render, because the render kept getting it wrong in
+ * one branch at a time: first "Nothing scheduled for today" on a failed load,
+ * then the same sentence twice on an empty day, then — when that was split —
+ * the failure reported *only* when the list was empty, so a refresh that fails
+ * while keeping rows said nothing at all.
+ *
+ * All four cases, decided in one place and tested:
+ *
+ * | list      | sessions call | note          | emptyMessage |
+ * |-----------|---------------|---------------|--------------|
+ * | has rows  | fine          | null          | null         |
+ * | has rows  | failed        | the failure   | null         |
+ * | empty     | fine          | null          | "Nothing…"   |
+ * | empty     | failed        | the failure   | null         |
+ *
+ * The last row is the one that matters: an empty list after a failed call is
+ * not a fact about the learner's day, so it must not be reported as one.
+ *
+ * @param {import('../types').TestPrepState | null | undefined} state
+ * @param {number} openCount how many unfinished sessions are on screen
+ * @returns {{ note: string | null, emptyMessage: string | null }}
+ */
+export function todayCopy(state, openCount) {
+  const note = sessionsNote(state);
+  return {
+    note,
+    emptyMessage: openCount === 0 && !note ? 'Nothing scheduled for today.' : null,
+  };
+}

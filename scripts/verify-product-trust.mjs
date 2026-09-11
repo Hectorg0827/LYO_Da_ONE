@@ -447,11 +447,14 @@ rejectPattern(
 // Every failure has somewhere to be said. `refreshFailed` was set and rendered
 // nowhere for a whole commit, which made a failed refresh completely silent.
 requireText(testPrepPage, 'staleWarning(state)', 'A stale or failed refresh is not shown to the learner');
-// Each failure gets exactly one sentence in one place. Rendering the same
-// note in the header and as the Today copy showed it twice on an empty day,
-// and let a page-refresh failure overwrite "Nothing scheduled for today" when
-// the sessions list was known-good and genuinely empty.
-requireText(testPrepPage, 'sessionsNote(state)', 'A failed sessions call has no note of its own');
+// Each failure gets exactly one sentence in one place. Rendering the same note
+// in the header and as the Today copy showed it twice on an empty day; letting
+// a page-refresh failure overwrite "Nothing scheduled for today" threw away a
+// fact we had; and reporting the failure only in the empty branch left a
+// refresh that fails while keeping rows completely silent. All four
+// combinations are decided in `todayCopy` and tested there.
+requireText(testPrepPage, 'todayCopy(state', 'The Today section decides its own copy again');
+requireText(testPrepStateTest, 'todayCopy', 'The Today copy is not exercised by tests');
 requireText(testPrepState, 'planLoadFailed', 'A failed refresh cannot be told from having no plan');
 
 // The transitions that caused rounds six through nine, covered by name.
@@ -520,6 +523,7 @@ const REQUIRED_RULES = [
   'A session with nothing graded cannot be told apart from a zero',
   'The plan view mutates state outside the reducer',
   'A stale or failed refresh is not shown to the learner',
+  'The Today section decides its own copy again',
 ];
 
 for (const rule of REQUIRED_RULES) {
