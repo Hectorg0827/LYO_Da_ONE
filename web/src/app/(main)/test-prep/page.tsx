@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CalendarClock, GraduationCap, Loader2, Send, Target } from 'lucide-react';
 
@@ -19,6 +19,7 @@ import {
   stageForPlans,
   topicStanding,
 } from '@/lib/test-prep.mjs';
+import { initialState, staleWarning, testPrepReducer } from '@/lib/test-prep-state.mjs';
 import type { ReadinessPayload, StudySessionRow } from '@/types';
 
 /**
@@ -51,22 +52,14 @@ type Turn = { role: 'coach' | 'learner'; text: string };
 export default function TestPrepPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
 
-  const [loading, setLoading] = useState(true);
-  const [stage, setStage] = useState<'intake' | 'plan'>('intake');
-  const [planId, setPlanId] = useState<string | null>(null);
-  const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
-  const [sessions, setSessions] = useState<StudySessionRow[]>([]);
-  const [failed, setFailed] = useState(false);
-  const [sessionsFailed, setSessionsFailed] = useState(false);
-  const [finishing, setFinishing] = useState<string | null>(null);
-  // Page-level, not per row. The row disappears on the next refresh — the
-  // server has marked the session completed and `openSessions` filters it out
-  // — so a notice rendered inside it is destroyed before it can be read.
-  const [notice, setNotice] = useState<string | null>(null);
-  // A refresh must not un-know a plan we have already seen. Held in a ref so
-  // `loadPlan` reads the current value rather than one closed over at mount.
-  const hasPlan = useRef(false);
-  const loadedOnce = useRef(false);
+  // One reducer rather than eighteen useStates. Four consecutive review
+  // findings on this page were different combinations of that state, the last
+  // of them a defect in the fix for the one before — the same shape as the
+  // 401 branch, and the same remedy: put the transitions somewhere they can
+  // be unit-tested. See test-prep-state.mjs.
+  const [state, dispatch] = useReducer(testPrepReducer, initialState);
+  const { loading, stage, planId, readiness, sessions, finishing, notice } = state;
+  const failed = state.planLoadFailed;
 
   // Intake conversation
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -77,62 +70,44 @@ export default function TestPrepPage() {
   const startedIntake = useRef(false);
 
   const loadPlan = useCallback(async () => {
-    // Only the first load blanks the page. A refresh — after finishing a
-    // session, say — would otherwise unmount the plan view mid-read and take
-    // whatever the learner was being told with it.
-    if (!loadedOnce.current) setLoading(true);
-    setFailed(false);
+    dispatch({ type: 'load_started' });
     try {
       const plans = await api.testPrep.plans();
       if (stageForPlans(plans) !== STAGE_PLAN) {
-        setStage('intake');
+        dispatch({ type: 'no_plan' });
         return;
       }
       const plan = currentPlan(plans);
       if (!plan) {
-        setStage('intake');
+        dispatch({ type: 'no_plan' });
         return;
       }
-      setPlanId(plan.id);
-      hasPlan.current = true;
-      setStage('plan');
-      // Both are supplementary to the page, so one failing must not blank the
-      // other — and neither may be replaced by a placeholder.
+      dispatch({ type: 'plan_loaded', planId: plan.id });
+
+      // Settled rather than all: one failing must not blank the other, and
+      // neither may be replaced by a placeholder.
       const [readinessResult, sessionsResult] = await Promise.allSettled([
         api.testPrep.readiness(plan.id),
         api.testPrep.todaySessions(),
       ]);
-      if (readinessResult.status === 'fulfilled') setReadiness(readinessResult.value);
-      if (sessionsResult.status === 'fulfilled') {
-        setSessions(sessionsResult.value ?? []);
-        setSessionsFailed(false);
-      } else {
-        // An empty list and a failed call are different things. Leaving
-        // `sessions` at [] would render "Nothing scheduled for today", which
-        // is a claim about the learner's day rather than about the request —
-        // the same failure this page already avoids for the plan list and for
-        // readiness. Anything already loaded is kept: a refresh that fails
-        // should not erase what we legitimately showed a moment ago.
-        setSessionsFailed(true);
-      }
+      dispatch({
+        type: 'details_loaded',
+        readiness: readinessResult.status === 'fulfilled' ? readinessResult.value : undefined,
+        sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value ?? [] : undefined,
+      });
     } catch {
-      // A failed request is not evidence the plan is gone. Falling back to
-      // intake here would drop a learner who has a plan into the conversation
-      // that builds one — and they would end up with a second plan because a
-      // refresh happened to fail. Only a learner we have never seen a plan
-      // for is sent to intake.
-      setFailed(true);
-      if (!hasPlan.current) setStage('intake');
+      dispatch({ type: 'load_failed' });
     } finally {
-      loadedOnce.current = true;
-      setLoading(false);
+      dispatch({ type: 'load_settled' });
     }
   }, []);
 
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated) {
-      setLoading(false);
+      // A guest has nothing to load; leaving `loading` true would hold them
+      // on the spinner forever.
+      dispatch({ type: 'load_settled' });
       return;
     }
     void loadPlan();
@@ -175,7 +150,7 @@ export default function TestPrepPage() {
   const finishSession = useCallback(
     async (sessionId: string) => {
       if (finishing) return;
-      setFinishing(sessionId);
+      dispatch({ type: 'finish_started', sessionId });
       try {
         const summary = completionSummary(await api.testPrep.completeSession(sessionId));
 
@@ -193,12 +168,13 @@ export default function TestPrepPage() {
                 ? 'Marked done. Nothing was recorded for this session.'
                 : 'Marked done, but I could not read what was measured.';
 
-        setNotice(text);
+        dispatch({ type: 'finish_succeeded', sessionId, notice: text });
         await loadPlan();
       } catch {
-        setNotice('I could not mark that done just now.');
-      } finally {
-        setFinishing(null);
+        dispatch({
+          type: 'finish_failed',
+          notice: 'I could not mark that done just now.',
+        });
       }
     },
     [finishing, loadPlan]
@@ -313,6 +289,10 @@ export default function TestPrepPage() {
     );
   }
 
+  // Every failure has somewhere to be said. `refreshFailed` was previously
+  // set and rendered nowhere, which is how a failed refresh after finishing a
+  // session became completely silent.
+  const stale = staleWarning(state);
   const headline = readinessHeadline(readiness);
   const countdown = daysLabel(readiness?.days_remaining);
   const due = openSessions(sessions);
@@ -324,6 +304,11 @@ export default function TestPrepPage() {
           {readiness?.subject ?? 'Your test'}
         </h1>
         {countdown && <p className="mt-1 text-sm text-white/60">{countdown}</p>}
+        {stale && (
+          <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200">
+            {stale}
+          </p>
+        )}
       </header>
 
       <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
@@ -392,9 +377,7 @@ export default function TestPrepPage() {
 
         {due.length === 0 ? (
           <p className="mt-3 text-sm text-white/60">
-            {sessionsFailed
-              ? 'I could not load today’s sessions just now.'
-              : 'Nothing scheduled for today.'}
+            {stale ?? 'Nothing scheduled for today.'}
           </p>
         ) : (
           <ul className="mt-3 space-y-2">

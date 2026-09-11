@@ -661,3 +661,34 @@ export interface SessionOutcomeReply {
   graded: number;
   seen: number;
 }
+
+/** The Test Prep page's state. See web/src/lib/test-prep-state.mjs. */
+export interface TestPrepState {
+  stage: 'intake' | 'plan';
+  loading: boolean;
+  loadedOnce: boolean;
+  planId: string | null;
+  readiness: ReadinessPayload | null;
+  sessions: StudySessionRow[];
+  sessionsFailed: boolean;
+  refreshFailed: boolean;
+  planLoadFailed: boolean;
+  notice: string | null;
+  finishing: string | null;
+}
+
+export type TestPrepAction =
+  | { type: 'load_started' }
+  | { type: 'plan_loaded'; planId: string }
+  | { type: 'no_plan' }
+  | {
+      type: 'details_loaded';
+      /** Omitted when the call failed — distinct from a null payload. */
+      readiness?: ReadinessPayload | undefined;
+      sessions?: StudySessionRow[] | undefined;
+    }
+  | { type: 'load_failed' }
+  | { type: 'load_settled' }
+  | { type: 'finish_started'; sessionId: string }
+  | { type: 'finish_succeeded'; sessionId: string; notice: string }
+  | { type: 'finish_failed'; notice: string };

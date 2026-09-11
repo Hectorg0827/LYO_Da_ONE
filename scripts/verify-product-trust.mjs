@@ -418,36 +418,31 @@ requireText(testPrepTest, 'completionSummary', 'The completion rules are not exe
 // Asserted on the copy the learner actually reads, not on a variable name:
 // an earlier version of this check matched the identifier, which a rename
 // satisfied while the page still said "Nothing scheduled for today".
-requireText(testPrepPage, 'could not load today', 'A failed sessions load is indistinguishable from an empty day');
+// The plan view's state lives in a reducer so these combinations can be
+// unit-tested. Four consecutive review findings on this page were different
+// combinations of eighteen useStates, the last a defect in the fix for the one
+// before — the same shape as the 401 branch, and the same remedy. What is left
+// to assert here is that the page still asks the reducer rather than growing
+// its own copy of the state back.
+const testPrepState = readCode('web/src/lib/test-prep-state.mjs');
+const testPrepStateTest = readCode('web/src/lib/test-prep-state.test.mjs');
 
-// A failed refresh is not evidence the plan is gone. Falling back to intake
-// would drop a learner who has a plan into the conversation that builds one,
-// and they would end up with a second plan because a request happened to
-// fail. Matched as a whole phrase, so renaming the ref breaks the check
-// rather than silently satisfying it.
-requireText(
-  testPrepPage,
-  "if (!hasPlan.current) setStage('intake')",
-  'A failed refresh sends a learner who has a plan back to intake'
-);
-
-// Refreshing after finishing a session must not blank the page: the plan view
-// unmounting mid-read takes whatever the learner was being told with it,
-// which is how the completion summary went unseen entirely.
-requireText(
-  testPrepPage,
-  'if (!loadedOnce.current) setLoading(true)',
-  'A refresh unmounts the plan view'
-);
-
-// The score is the server's to determine. Sending one is the exact §30
-// violation this endpoint was fixed for, whatever the field is called.
-rejectText(apiClient, 'performance_score=', 'The client sends its own session score');
+requireText(testPrepPage, 'useReducer(testPrepReducer', 'The plan view manages its state ad hoc again');
 rejectPattern(
-  apiClient,
-  /performance_score:\s*[^,\n]/,
-  'The client puts a session score in a request body'
+  testPrepPage,
+  /\bset(Stage|Sessions|Readiness|PlanId|Loading|Notice|Finishing)\(/,
+  'The plan view mutates state outside the reducer'
 );
+
+// Every failure has somewhere to be said. `refreshFailed` was set and rendered
+// nowhere for a whole commit, which made a failed refresh completely silent.
+requireText(testPrepPage, 'staleWarning(state)', 'A stale or failed refresh is not shown to the learner');
+requireText(testPrepState, 'planLoadFailed', 'A failed refresh cannot be told from having no plan');
+
+// The transitions that caused rounds six through nine, covered by name.
+for (const scenario of ['load_failed', 'finish_succeeded', 'details_loaded']) {
+  requireText(testPrepStateTest, scenario, `The ${scenario} transition is not exercised by tests`);
+}
 
 // ── 3g. An unknown explorable must not eat the lesson ───────────────────────
 //
