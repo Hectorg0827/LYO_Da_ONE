@@ -46,6 +46,9 @@ jobs:
       - name: Verify AI Classroom interaction and voice parity
         run: node scripts/verify-classroom-parity.mjs
 
+      - name: Verify product trust (no fabricated learner data, front door, brand)
+        run: node scripts/verify-product-trust.mjs
+
       - name: Verify Android navigation and Create workflows
         run: node scripts/verify-android-product-navigation.mjs
 
@@ -201,9 +204,15 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
-      - name: Classroom contract tests
+      # Every *.test.mjs under src/lib, by glob. This step used to name three
+      # test files individually, which meant a new test file was invisible to
+      # CI until someone remembered to add a step for it — and nobody did:
+      # the explorable and auth-failure suites both sat green-by-absence.
+      # A test that does not run is worse than no test, because it reads as
+      # coverage. Enumerating them again would reintroduce that.
+      - name: Web unit tests
         working-directory: web
-        run: npm run test:classroom
+        run: npm test
 
       - name: Typecheck
         working-directory: web

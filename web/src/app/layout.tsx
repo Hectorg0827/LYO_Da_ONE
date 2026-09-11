@@ -22,10 +22,10 @@ const nunito = Nunito({
 
 export const metadata: Metadata = {
   title: {
-    default: 'LYO Da ONE',
-    template: '%s | LYO Da ONE',
+    default: 'LYO',
+    template: '%s | LYO',
   },
-  description: 'Your AI-powered learning companion',
+  description: "The Living AI Classroom. Don't just chat with AI — learn with it.",
   keywords: ['AI learning', 'education', 'courses', 'personalized learning', 'LYO'],
   authors: [{ name: 'LYO Team' }],
   creator: 'LYO',
@@ -43,19 +43,19 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Lyo',
+    title: 'LYO',
   },
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    title: 'LYO Da ONE',
-    description: 'Your AI-powered learning companion',
-    siteName: 'LYO Da ONE',
+    title: 'LYO',
+    description: "The Living AI Classroom. Don't just chat with AI — learn with it.",
+    siteName: 'LYO',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'LYO Da ONE',
-    description: 'Your AI-powered learning companion',
+    title: 'LYO',
+    description: "The Living AI Classroom. Don't just chat with AI — learn with it.",
   },
   robots: {
     index: true,

@@ -1,3 +1,4 @@
+import { canRenderExplorable } from '@/lib/explorable.mjs';
 import type { ChatBlock } from '@/types';
 
 /**
@@ -37,17 +38,39 @@ export function canRenderBlock(block: ChatBlock | null | undefined): boolean {
         str('question') && Array.isArray(content.options) && content.options.length > 0
       );
 
+    // Delegated, not re-implemented. This branch previously accepted any
+    // string `kind`, while ExplorableBlock draws only the kinds it knows — so
+    // an unrecognised or future kind passed here, MessageBubble hid the prose
+    // fallback on the strength of it, and the component then rendered
+    // nothing. The learner got a gap where the lesson used to be.
+    //
+    // Any other interactive subtype reaches GenericBlock, so it is judged by
+    // the same chain as the default case — not by falling out of the switch,
+    // which would return undefined and hide the fallback just as quietly.
+    case 'interactive':
+      return block.subtype === 'explorable'
+        ? canRenderExplorable(content)
+        : genericChain(str, content);
+
     // Mirrors GenericBlock's fallback chain, in the same order.
     default:
-      return (
-        str('code') ||
-        str('front') ||
-        (typeof content.completed === 'number' && typeof content.total === 'number') ||
-        (Array.isArray(content.items) && content.items.length > 0) ||
-        str('url') ||
-        str('text') ||
-        str('title') ||
-        str('source')
-      );
+      return genericChain(str, content);
   }
+}
+
+/** GenericBlock's fallback chain, in the same order it tries them. */
+function genericChain(
+  str: (key: string) => boolean,
+  content: Record<string, unknown>
+): boolean {
+  return (
+    str('code') ||
+    str('front') ||
+    (typeof content.completed === 'number' && typeof content.total === 'number') ||
+    (Array.isArray(content.items) && content.items.length > 0) ||
+    str('url') ||
+    str('text') ||
+    str('title') ||
+    str('source')
+  );
 }

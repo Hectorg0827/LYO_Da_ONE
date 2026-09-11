@@ -12,6 +12,7 @@ import {
   unwrapLatexDelimiters,
 } from '../markdown-config';
 import CheckBlock from './CheckBlock';
+import ExplorableBlock from './ExplorableBlock';
 
 const inlineMarkdownComponents = {
   ...markdownComponents,
@@ -265,6 +266,14 @@ export default function BlockRenderer({
             return <DataVizBlock key={block.id} block={block} />;
           case 'quiz':
             return <CheckBlock key={block.id} block={block} message={message} />;
+          case 'interactive':
+            // A subtype this client does not know still reaches GenericBlock,
+            // so an explorable is an upgrade rather than a gate.
+            return block.subtype === 'explorable' ? (
+              <ExplorableBlock key={block.id} block={block} />
+            ) : (
+              <GenericBlock key={block.id} block={block} />
+            );
           case 'unknown':
             // Forward compatibility: a type this client genuinely does not
             // know is skipped, never rendered as raw JSON and never thrown on.

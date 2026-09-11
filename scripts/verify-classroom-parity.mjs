@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const failures = [];
@@ -89,6 +89,67 @@ rejectText(iosLegacyViewModel, 'Which part of y = mx + b', 'iOS algebra-only qui
 requireText(iosLegacyModel, 'let quickCheck: QuickCheck?', 'iOS authored quick check contract');
 rejectText(iosLegacyOverlay, 'Simplified for now', 'iOS tap-to-order stub');
 rejectText(iosLegacyOverlay, 'Interactive Diagram', 'iOS diagram stub');
+
+// ── iOS teaches through exactly one classroom ────────────────────────────────
+//
+// iOS carried four classroom entry points. LivingClassroomView is the only one
+// MainTabView, EnhancedLyoHomeView or DiscoverView ever routed to; the other
+// three were unreachable code that would drift out of step with the shared
+// contract precisely because nothing exercised them.
+//
+// LivingClassroomEngine is the important one to keep out. It was an on-device
+// teaching loop added because the server-pushed classroom could dead-end. That
+// is a real failure worth fixing, but fixing it on the client makes iOS a
+// pedagogically different product from web and Android — the safe fallback
+// belongs server-side.
+const REMOVED_IOS_CLASSROOMS = [
+  'Sources/Services/LivingClassroomEngine.swift',
+  'Sources/Services/LyoClassroomService.swift',
+  'Sources/ViewModels/AgenticClassroomViewModel.swift',
+  'Sources/Views/Main/Classroom/AgenticClassroomView.swift',
+];
+
+for (const path of REMOVED_IOS_CLASSROOMS) {
+  if (existsSync(new URL(`../${path}`, import.meta.url))) {
+    failures.push(`iOS classroom convergence: ${path} is back — one classroom, one contract`);
+  }
+}
+
+// ── iOS study plans: no pretend persistence ─────────────────────────────────
+//
+// StudyPlanService claimed to persist a learner's study plan and did not. It
+// POSTed to /api/v1/me/study_plans, which the server registers for GET only,
+// so every call was a 405 that `try?` swallowed; and StudyPlanRecord could not
+// have decoded a real response anyway (`id` is a UUID string on the wire, not
+// an Int, and subject/topics/daily_breakdown are not on StudyPlanRead).
+//
+// Code that looks like persistence and is not hides the gap it leaves. The
+// server does build durable plans, through intake/turn then plans/generate;
+// until a client is wired to that, the honest state is no client integration.
+const REMOVED_IOS_STUDY_PLANS = [
+  'Sources/Services/StudyPlanService.swift',
+  'Sources/Models/StudyPlanRecord.swift',
+];
+
+for (const path of REMOVED_IOS_STUDY_PLANS) {
+  if (existsSync(new URL(`../${path}`, import.meta.url))) {
+    failures.push(
+      `iOS study plans: ${path} is back — it never persisted anything (see docs/CLASSROOM_ARCHITECTURE.md §7.4)`
+    );
+  }
+}
+
+// The specific call that 405'd. A client may read the plan list from this
+// path; creating one goes through the intake flow, never a POST here.
+for (const [file, label] of [
+  ['Sources/Core/Networking/Endpoint.swift', 'iOS endpoints'],
+  ['Sources/Views/Main/Hybrid/LyoOverlayView.swift', 'iOS chat overlay'],
+]) {
+  const source = read(file);
+  if (/case\s+\.create:\s*\n\s*return\s+"\/api\/v1\/me\/study_plans"/.test(source)) {
+    failures.push(`${label}: POST /api/v1/me/study_plans is a 405 — the server registers GET only`);
+  }
+}
 
 if (failures.length) {
   console.error('AI Classroom parity gate failed:\n');

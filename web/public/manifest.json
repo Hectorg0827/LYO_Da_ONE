@@ -1,7 +1,7 @@
 {
-  "name": "LYO Da ONE",
-  "short_name": "Lyo",
-  "description": "Your AI-powered learning companion",
+  "name": "LYO",
+  "short_name": "LYO",
+  "description": "The Living AI Classroom. Don't just chat with AI — learn with it.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -134,7 +134,7 @@ export default function ChatSidebar({ className }: ChatSidebarProps) {
         <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-lyo-500 to-accent-purple flex items-center justify-center shrink-0">
           <span className="text-[10px] font-bold text-white">LYO</span>
         </div>
-        <span className="font-semibold text-white text-sm tracking-tight">LYO AI</span>
+        <span className="font-semibold text-white text-sm tracking-tight">LYO</span>
       </div>
 
       {/* New chat button */}
@@ -182,7 +182,7 @@ export default function ChatSidebar({ className }: ChatSidebarProps) {
       {/* Footer */}
       <div className="px-4 py-3 border-t border-white/5">
         <p className="text-[11px] text-white/20 text-center">
-          Powered by LYO AI · All chats private
+          Powered by LYO · All chats private
         </p>
       </div>
     </div>

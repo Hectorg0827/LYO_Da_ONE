@@ -1,6 +1,19 @@
+import {
+  classifyAuthFailure,
+  NOT_SIGNED_IN,
+  REQUEST_FAILED,
+  RETURN_RETRY,
+} from '@/lib/auth-failure.mjs';
 import type {
   User,
   ChatBlock,
+  ConceptSummary,
+  IntakeTurn,
+  ReadinessPayload,
+  StudyPlanSummary,
+  SessionOutcomeReply,
+  StudySessionRow,
+  RecommendationList,
   CheckAnswerResult,
   SessionSummary,
   DueReviewItem,
@@ -61,11 +74,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * `skipAuth` sends no token at all — for genuinely public endpoints.
+ *
+ * `optionalAuth` still sends the token when there is one, but a 401 throws
+ * instead of clearing the session and navigating to /auth/login. Use it for
+ * anything supplementary: a signed-out visitor has no learner record, and a
+ * call that merely *decorates* Home must never be able to evict them from it.
+ * The front door is supposed to work for guests.
+ */
 async function request<T>(
   endpoint: string,
-  options: RequestInit & { skipAuth?: boolean } = {}
+  options: RequestInit & { skipAuth?: boolean; optionalAuth?: boolean } = {}
 ): Promise<T> {
-  const { skipAuth, ...fetchOptions } = options;
+  const { skipAuth, optionalAuth, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(fetchOptions.headers as Record<string, string>),
@@ -82,21 +104,54 @@ async function request<T>(
   });
 
   if (res.status === 401 && !skipAuth) {
+    // The refresh runs for every call, optional ones included: a learner with
+    // a merely *expired* access token must not have their Home sections sit
+    // empty for the visit because `useApi` never retries.
     const refreshed = await tryRefreshToken();
+
+    let retry: Response | null = null;
     if (refreshed) {
       headers['Authorization'] = `Bearer ${getAccessToken()}`;
-      const retry = await fetch(`${API_URL}${endpoint}`, {
-        ...fetchOptions,
-        headers,
-      });
-      if (retry.ok) {
-        if (retry.status === 204) return undefined as T;
-        return retry.json();
-      }
+      retry = await fetch(`${API_URL}${endpoint}`, { ...fetchOptions, headers });
     }
-    clearTokens();
-    if (typeof window !== 'undefined') window.location.href = '/auth/login';
-    throw new ApiError('Session expired', 401);
+
+    // The decision lives in `auth-failure.mjs`, where it can be tested. This
+    // branch has been wrong three times running, each fix causing the next
+    // problem, and every guard on it was a source-text assertion.
+    switch (
+      classifyAuthFailure({
+        refreshed,
+        retryStatus: retry ? retry.status : null,
+        optionalAuth: Boolean(optionalAuth),
+      })
+    ) {
+      case RETURN_RETRY:
+        if (retry!.status === 204) return undefined as T;
+        return retry!.json();
+
+      case REQUEST_FAILED: {
+        // The refresh worked, so the learner is signed in. Whatever the
+        // retried call returned is a fact about that call — surfacing it as a
+        // logout both misleads the caller and, on a required call, throws a
+        // signed-in learner out over an unrelated server error.
+        const body = await retry!.json().catch(() => ({ detail: 'Request failed' }));
+        throw new ApiError(
+          body.detail || body.message || `HTTP ${retry!.status}`,
+          retry!.status
+        );
+      }
+
+      case NOT_SIGNED_IN:
+        // Supplementary call, no usable session. "No data for you", not "you
+        // are logged out": the caller swallows it and the guest keeps the
+        // front door they are standing in.
+        throw new ApiError('Not signed in', 401);
+
+      default:
+        clearTokens();
+        if (typeof window !== 'undefined') window.location.href = '/auth/login';
+        throw new ApiError('Session expired', 401);
+    }
   }
 
   if (!res.ok) {
@@ -688,6 +743,151 @@ export const api = {
 
     async seen(storyId: string) {
       return request(`/api/v1/stories/${storyId}/seen`, { method: 'POST' });
+    },
+  },
+
+  // ── Learning activity ──
+  learning: {
+    /**
+     * Record that the learner engaged with a representation of a concept.
+     *
+     * This is *exposure* — they met the idea. It is not a demonstration, and
+     * this call cannot make it one: the server records any client-submitted
+     * event as exposure with no graded outcome, whatever the body claims. A
+     * demonstration has to be graded server-side.
+     */
+    async recordExposure(conceptId: string) {
+      return request('/api/v1/evolution/events', {
+        // Bookkeeping. A guest clicking a point on a number line is exploring
+        // an idea; being thrown to the login page for it would be absurd.
+        optionalAuth: true,
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: 0, // replaced server-side by the authenticated user
+          event_type: 'AI_SESSION',
+          concept_id: conceptId,
+          source_surface: 'chat',
+        }),
+      });
+    },
+  },
+
+  // ── Learner model ──
+  personalization: {
+    /**
+     * How many concepts this learner is exploring, has learned, retained and
+     * mastered — counted server-side from their own evidence, never derived
+     * on the client from a score that happens to be handy.
+     *
+     * Home leads with these. A wrong one is worse than no headline: a learner
+     * told they have mastered twelve concepts and then failing a test on them
+     * has been lied to by their own progress screen.
+     */
+    async conceptSummary() {
+      return request<ConceptSummary>('/api/v1/personalization/concepts/summary', {
+        // Home calls this on every load, including for signed-out visitors.
+        // Without this a missing token would redirect them to /auth/login —
+        // out of the front door the page exists to show them.
+        optionalAuth: true,
+      });
+    },
+
+    /**
+     * What this learner should do next, with the reason attached — drawn from
+     * their own review schedule and mastery profile.
+     *
+     * Empty when there is no basis for a recommendation. Home stays silent in
+     * that case rather than filling the space with the catalogue and calling
+     * it "for you", which is what this replaced.
+     */
+    async recommendations(limit = 4) {
+      return request<RecommendationList>(
+        `/api/v1/personalization/recommendations?limit=${limit}`,
+        { optionalAuth: true }
+      );
+    },
+  },
+
+  // ── Test prep ──
+  //
+  // The server has had all of this since Phase E and no client called any of
+  // it, so no learner anywhere could create a study plan — which made
+  // readiness, today's sessions and plan stats endpoints with no possible
+  // data. A plan is built from a conversational intake, not posted in one go:
+  // `intakeTurn` until the server says it is complete, then `generatePlan`.
+  testPrep: {
+    /**
+     * This learner's study plans. Empty is the normal first state.
+     *
+     * Optional auth: the page is reachable from the front door, and a guest
+     * looking at it should be invited to sign in, not ejected to /auth/login.
+     */
+    async plans() {
+      return request<StudyPlanSummary[]>('/api/v1/me/study_plans', { optionalAuth: true });
+    },
+
+    /** One turn of the intake conversation that builds a test profile. */
+    async intakeTurn(userMessage: string, testProfileId?: string) {
+      return request<IntakeTurn>('/api/v1/me/study_plans/intake/turn', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_message: userMessage,
+          test_profile_id: testProfileId ?? null,
+        }),
+      });
+    },
+
+    /**
+     * Turn a completed profile into a plan and its scheduled sessions.
+     *
+     * `test_profile_id` is a query parameter, not a body field — that is how
+     * the route declares it.
+     */
+    async generatePlan(testProfileId: string) {
+      return request<{ plan_id: string; total_sessions: number }>(
+        `/api/v1/me/study_plans/plans/generate?test_profile_id=${encodeURIComponent(testProfileId)}`,
+        { method: 'POST' }
+      );
+    },
+
+    /**
+     * How ready this learner is for one test, weighted by topic.
+     *
+     * Read it through `readinessHeadline` rather than rendering the number
+     * directly: a plan with nothing assessed yet carries a readiness of 0,
+     * and showing that as "0% ready" claims a measurement nobody took.
+     */
+    async readiness(planId: string) {
+      return request<ReadinessPayload>(
+        `/api/v1/me/study_plans/plans/${encodeURIComponent(planId)}/readiness`,
+        { optionalAuth: true }
+      );
+    },
+
+    /** Today's scheduled sessions, each carrying the concept id to teach. */
+    async todaySessions() {
+      return request<StudySessionRow[]>('/api/v1/me/study_plans/sessions/today', {
+        optionalAuth: true,
+      });
+    },
+
+    /**
+     * Close a session out. Deliberately sends no score.
+     *
+     * The route used to take `performance_score` as a query parameter — the
+     * device saying how well its owner had done — and stored it as the
+     * learner's performance. It now derives the outcome from the evidence the
+     * server itself recorded while the session was open, and replies with what
+     * it measured. Read that reply through `completionSummary`; a session
+     * where nothing was graded comes back with a null score, which is not a
+     * zero.
+     */
+    async completeSession(sessionId: string, notes = '') {
+      return request<SessionOutcomeReply>(
+        `/api/v1/me/study_plans/sessions/${encodeURIComponent(sessionId)}/complete`
+          + `?user_notes=${encodeURIComponent(notes)}`,
+        { method: 'POST' }
+      );
     },
   },
 

@@ -15,7 +15,7 @@ struct ChatOverlayView: View {
             VStack(spacing: 0) {
                 // Header
                 HStack {
-                    Text("Lyo AI")
+                    Text("LYO")
                         .font(.headline)
                         .foregroundColor(.white)
                     

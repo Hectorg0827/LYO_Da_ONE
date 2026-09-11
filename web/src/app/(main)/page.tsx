@@ -15,7 +15,6 @@ import {
   Heart,
   MessageCircle,
   Trophy,
-  Target,
   TrendingUp,
   Layers,
   Share,
@@ -28,41 +27,10 @@ import { useApi } from '@/hooks/use-api';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { listCourseStacks, postCourseToCommunity, courseShareUrl } from '@/lib/stack';
-
-// ── Daily challenges (TODO: wire to gamification challenges when endpoint available) ──
-
-const dailyChallenges = [
-  {
-    id: '1',
-    title: 'Complete 2 Lessons',
-    description: 'Finish any 2 lessons in your active courses',
-    xpReward: 150,
-    progress: 1,
-    requirement: 2,
-    icon: BookOpen,
-    color: '#6366f1',
-  },
-  {
-    id: '2',
-    title: '10-Minute Learning Sprint',
-    description: 'Study for 10 uninterrupted minutes',
-    xpReward: 100,
-    progress: 7,
-    requirement: 10,
-    icon: Clock,
-    color: '#3b82f6',
-  },
-  {
-    id: '3',
-    title: 'Quiz Master',
-    description: 'Score 80% or higher on a quiz',
-    xpReward: 200,
-    progress: 0,
-    requirement: 1,
-    icon: Target,
-    color: '#f59e0b',
-  },
-];
+import NextForYou from '@/components/home/NextForYou';
+import FrontDoor from '@/components/home/FrontDoor';
+import { shouldShowLearnerDashboard } from '@/lib/entry-contract.mjs';
+import { hasConceptEvidence, shouldLeadWithConcepts } from '@/lib/learner-model.mjs';
 
 // Color palette for dynamically mapped courses
 const courseColors = ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#3b82f6'];
@@ -305,10 +273,11 @@ function ShareOrPostMenu({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [mounted, setMounted] = useState(false);
 
   const { data: gamification } = useApi(() => api.gamification.overview(), []);
+  const { data: conceptSummary } = useApi(() => api.personalization.conceptSummary(), []);
   const { data: courses } = useApi(() => api.courses.list(0, 4), []);
   const { data: feedData } = useApi(() => api.feed.publicFeed(1, 3), []);
   // Device- and platform-agnostic Stacks: courses this learner has actually
@@ -332,7 +301,7 @@ export default function HomePage() {
   const xpSummary = gamification?.xp_summary as Record<string, unknown> | undefined;
   const userLevel = gamification?.user_level as Record<string, unknown> | undefined;
   const achievementsData = gamification?.achievements as Record<string, unknown> | undefined;
-  const learningStats = [
+  const activityStats = [
     {
       label: 'Hours Learned',
       value: String((userLevel?.total_hours as number) || user?.xp ? Math.round((user?.xp || 0) / 100) : 0),
@@ -367,11 +336,72 @@ export default function HomePage() {
     },
   ];
 
+  /**
+   * Lead with what the learner knows, not how often they showed up.
+   *
+   * XP, level, hours and streak are real, but they measure attendance. A
+   * learner with a thirty-day streak still cannot tell from that whether they
+   * understand anything. These counts are earned from their own evidence
+   * server-side — see `lyo_app/events/concept_summary.py` for what each word
+   * requires — so the headline means what it says.
+   *
+   * Streak keeps the fourth slot. It is honest about being a habit measure,
+   * and it is the one number here that rewards coming back tomorrow.
+   *
+   * If the summary is unavailable — an older backend, a failed request — the
+   * activity stats are shown instead. Rendering zeroes for a learner who has
+   * demonstrably done work would be the same fabrication this page was
+   * cleaned up to remove, just with a more flattering vocabulary.
+   */
+  // Narrowed here rather than inline: the decision lives in a .mjs module, so
+  // TypeScript cannot see through the call to know the summary is non-null.
+  const leadingConcepts = shouldLeadWithConcepts(conceptSummary) ? conceptSummary : null;
+
+  const conceptStats = leadingConcepts
+    ? [
+        {
+          label: 'Learned',
+          value: String(leadingConcepts.learned),
+          sub: 'concepts explained',
+          icon: BookOpen,
+          color: '#6366f1',
+          trend: leadingConcepts.exploring > 0 ? `${leadingConcepts.exploring} exploring` : '',
+        },
+        {
+          label: 'Mastered',
+          value: String(leadingConcepts.mastered),
+          sub: 'applied, transferred, retained',
+          icon: Trophy,
+          color: '#22c55e',
+          trend: '',
+        },
+        {
+          label: 'Retained',
+          value: String(leadingConcepts.retained),
+          sub: 'recalled after a break',
+          icon: Zap,
+          color: '#f59e0b',
+          trend: '',
+        },
+        {
+          label: 'Streak',
+          value: `${currentStreak}d`,
+          sub: 'current',
+          icon: Clock,
+          color: '#ec4899',
+          trend: bestStreak > currentStreak ? `Best: ${bestStreak}d` : '',
+        },
+      ]
+    : null;
+
+  const learningStats = conceptStats ?? activityStats;
+
   // Map real Stack items — device- and platform-agnostic, backend-synced,
   // sourced from every course a course card's Start action has actually
   // saved (see /classroom's upsertCourseOnStart effect and CoursePlayer's
   // progress sync) — NOT the generic catalog list used below for
-  // Recommended For You.
+  // The catalogue grid below. Not personalised — see <NextForYou /> for the
+  // learner's actual recommendations.
   const STATUS_LABEL: Record<string, string> = {
     not_started: 'Not started',
     in_progress: 'In progress',
@@ -388,8 +418,33 @@ export default function HomePage() {
     timeLeft: '',
   }));
 
+  /**
+   * Is there anything real to report about this learner yet?
+   *
+   * A signed-out visitor never has activity. A signed-in learner who has not
+   * started anything has none either, and showing them Level 1 / 0 XP /
+   * 0 hours / 0 courses is a dashboard of their own nothing — it asks them to
+   * admire an empty account before the product has given them anything.
+   *
+   * When there is no activity we skip the greeting, the hero card and the
+   * stats grid entirely and lead with the front door instead. Nothing here
+   * invents a number to fill the space.
+   */
+  const hasRealActivity =
+    hasConceptEvidence(conceptSummary) ||
+    stackCourses.length > 0 ||
+    ((xpSummary?.total as number) || user?.xp || 0) > 0 ||
+    ((achievementsData?.completed as number) || user?.coursesCompleted || 0) > 0 ||
+    currentStreak > 0;
+
+  const showLearnerDashboard = shouldShowLearnerDashboard({
+    authLoading,
+    isAuthenticated,
+    hasRealActivity,
+  });
+
   // Map API courses to recommended format
-  const recommendedCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({
+  const catalogueCourses = (courses || []).map((c: Record<string, unknown>, i: number) => ({
     id: String(c.id ?? i),
     title: (c.title as string) || 'Untitled Course',
     category: (c.subject as string) || (c.category as string) || 'General',
@@ -435,6 +490,14 @@ export default function HomePage() {
       initial="hidden"
       animate={mounted ? 'visible' : 'hidden'}
     >
+      {/* ── Front door — the question the product exists to answer.
+          Shown to everyone so the Classroom and "I have a test" entries are
+          always one action away; it leads the page for a learner with no
+          activity yet, and sits under Continue Learning for one who has. */}
+      <FrontDoor knownLearner={showLearnerDashboard} />
+
+      {showLearnerDashboard && (
+        <>
       {/* ── Greeting (matches iOS FocusView greetingSection) ──── */}
       <motion.div variants={itemVariants}>
         <p className="font-rounded text-sm font-medium text-white/75">{getGreeting()}</p>
@@ -543,6 +606,9 @@ export default function HomePage() {
         })()}
       </motion.div>
 
+        </>
+      )}
+
       {/* ── Quick Actions ─────────────────────────────────────── */}
       <motion.div variants={itemVariants}>
         <SectionHeader title="Quick Actions" icon={Sparkles} />
@@ -638,7 +704,8 @@ export default function HomePage() {
         )}
       </motion.div>
 
-      {/* ── Learning Stats ────────────────────────────────────── */}
+      {/* ── Learning Stats — only once there is something to count ─ */}
+      {showLearnerDashboard && (
       <motion.div variants={itemVariants}>
         <SectionHeader title="Your Stats" icon={TrendingUp} />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -665,67 +732,34 @@ export default function HomePage() {
         </div>
       </motion.div>
 
-      {/* ── Daily Challenges ──────────────────────────────────── */}
-      <motion.div variants={itemVariants}>
-        <SectionHeader title="Daily Challenges" href="/challenges" icon={Target} />
-        <div className="space-y-3">
-          {dailyChallenges.map((challenge) => {
-            const Icon = challenge.icon;
-            const pct = Math.round((challenge.progress / challenge.requirement) * 100);
-            const isDone = challenge.progress >= challenge.requirement;
+      )}
 
-            return (
-              <div
-                key={challenge.id}
-                className={cn(
-                  'glass-card p-4 flex items-center gap-4 transition-all duration-200',
-                  isDone && 'opacity-70'
-                )}
-              >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: `${challenge.color}20`, border: `1px solid ${challenge.color}25` }}
-                >
-                  <Icon size={20} style={{ color: challenge.color }} />
-                </div>
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-primary truncate">{challenge.title}</p>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0"
-                      style={{
-                        backgroundColor: `${challenge.color}20`,
-                        color: challenge.color,
-                      }}
-                    >
-                      +{challenge.xpReward} XP
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-secondary truncate">{challenge.description}</p>
-                  <div className="flex items-center gap-2">
-                    <ProgressBar value={pct} color={challenge.color} height={3} />
-                    <span className="text-[10px] text-secondary shrink-0 w-16 text-right">
-                      {isDone ? '✓ Done' : `${challenge.progress}/${challenge.requirement}`}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </motion.div>
+      {/* ── What LYO recommends next ──────────────────────────────
+          Driven by the learner's real spaced-repetition schedule. Renders
+          nothing when nothing is due. This replaced a hard-coded
+          "Daily Challenges" list with invented progress values. */}
+      <NextForYou />
 
-      {/* ── Recommended For You ───────────────────────────────── */}
+      {/* ── Browse the catalogue ──────────────────────────────────
+          This was headed "Recommended For You" over `courses.list(0, 4)` —
+          the first four rows of the catalogue, identical for every learner.
+          Not invented data, but a claim about the learner ("for you") that
+          nothing behind it supported.
+
+          Real recommendations live in <NextForYou /> above, drawn from this
+          learner's own review schedule and mastery profile, each carrying the
+          reason it was chosen. The catalogue is still worth browsing; it just
+          is not personalised, so it no longer says it is. */}
       <motion.div variants={itemVariants}>
-        <SectionHeader title="Recommended For You" href="/discover" icon={Star} />
-        {recommendedCourses.length === 0 ? (
+        <SectionHeader title="Browse the catalogue" href="/discover" icon={Star} />
+        {catalogueCourses.length === 0 ? (
           <div className="glass-card p-6 flex flex-col items-center gap-2 text-center">
             <Star size={28} className="text-secondary" />
-            <p className="text-sm text-secondary">Recommendations will appear as you learn more</p>
+            <p className="text-sm text-secondary">Courses will appear here as they are published</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {recommendedCourses.map((course) => (
+            {catalogueCourses.map((course) => (
               <Link
                 key={course.id}
                 href={`/courses/${course.id}`}

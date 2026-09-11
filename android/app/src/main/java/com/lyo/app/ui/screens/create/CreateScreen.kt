@@ -90,7 +90,7 @@ private val createActions = listOf(
     ),
     CreateAction(
         title = "Plan content with Lyo",
-        subtitle = "Open the real Lyo AI conversation before deciding what to publish.",
+        subtitle = "Open the real LYO conversation before deciding what to publish.",
         icon = Icons.Filled.SmartToy,
         accent = LyoBlue,
         route = Routes.CHAT,

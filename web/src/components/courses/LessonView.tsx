@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Copy, Check, Lightbulb, Code, BookOpen, CheckCircle } from 'lucide-react';
 import { Lesson, LessonBlock, Quiz, Flashcard } from '@/types';
+import { masteryPercent } from '@/lib/learner-model.mjs';
 import { cn } from '@/lib/utils';
 import QuizView from './QuizView';
 
@@ -125,13 +126,17 @@ function FlashcardBlock({ block }: { block: LessonBlock }) {
           style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
           <p className="text-white/80 text-center leading-relaxed">{card.back}</p>
-          {typeof card.mastery === 'number' && (
+          {/* The backend stores mastery as a 0..1 float; this bar previously
+              assumed 0..100, so a well-mastered card drew a 0.7%-wide sliver.
+              masteryPercent accepts either scale and returns null when there
+              is no reading at all, which is not the same as zero. */}
+          {masteryPercent(card.mastery) !== null && (
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs text-white/40">Mastery</span>
               <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-lyo-500 to-purple-500 rounded-full"
-                  style={{ width: `${card.mastery}%` }}
+                  style={{ width: `${masteryPercent(card.mastery)}%` }}
                 />
               </div>
             </div>

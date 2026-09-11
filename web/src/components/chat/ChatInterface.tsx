@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore, type GenerationActivity } from '@/stores/chat-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -180,10 +181,14 @@ export default function ChatInterface() {
     generationActivity,
     hydrate,
     fetchDueReviews,
+    sendMessage,
   } = useChatStore();
   const conversation = getActiveConversation();
   const messages = conversation?.messages ?? [];
   const bottomRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
+  const seededPrompt = searchParams.get('prompt');
+  const seededSent = useRef(false);
 
   useEffect(() => {
     hydrate();
@@ -191,6 +196,49 @@ export default function ChatInterface() {
     // still due an hour into the session isn't suddenly less due.
     fetchDueReviews();
   }, [hydrate, fetchDueReviews]);
+
+  /**
+   * `?prompt=` lets another surface hand Chat an opening turn.
+   *
+   * Home's "I have a test" entry uses it: Test Prep is a real backend intent
+   * (TEST_PREP in lyo_app/ai/router.py) reached by what the learner says, so
+   * the honest way to open that flow is to actually say it and let the router
+   * ask for subject, date and materials. No parallel client-side test-prep
+   * mock sits in front of it.
+   *
+   * The send is ordered behind hydration rather than racing it. On a fresh
+   * load hydrate() finishes by replacing the conversation list, clearing the
+   * active id and opening a new chat — so a turn sent first lands in a
+   * conversation that is then thrown away, and the learner arrives at an
+   * empty chat with their opening turn missing. hydrate() returns its
+   * in-flight promise to concurrent callers, so awaiting it here is enough.
+   *
+   * The ref records that the turn was **sent**, not that it was attempted.
+   * Marking the attempt instead loses the turn entirely under a remount: the
+   * first pass sets the flag and is then cancelled by its own cleanup, while
+   * the second pass sees the flag already set and declines to retry, so
+   * nobody sends. Strict Mode remounts every component once in development
+   * (Next 14 enables it by default), which made that the normal case locally
+   * rather than an edge one.
+   *
+   * Setting it at the send keeps both properties: a cancelled pass leaves the
+   * turn still owed, and the pass that does send closes the door behind it.
+   * Two live passes cannot both get through — whichever resumes first sets
+   * the ref synchronously before yielding again.
+   */
+  useEffect(() => {
+    if (!seededPrompt || seededSent.current) return;
+    let cancelled = false;
+    void (async () => {
+      await hydrate();
+      if (cancelled || seededSent.current) return;
+      seededSent.current = true;
+      void sendMessage(seededPrompt);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seededPrompt, sendMessage, hydrate]);
 
   // Auto-scroll when messages change or while generating
 

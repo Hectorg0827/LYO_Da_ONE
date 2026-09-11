@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -118,7 +118,12 @@ export default function ChatPage() {
 
         {/* Chat interface — bottom padding clears the fixed mobile tab bar */}
         <div className={cn('flex-1 min-h-0 pb-20 md:pb-0')}>
-          <ChatInterface />
+          {/* ChatInterface reads `?prompt=` to accept a seeded opening turn
+              (Home's "I have a test" entry), so it needs a Suspense boundary
+              for the same reason ClassroomPage does. */}
+          <Suspense fallback={<div className="h-full" />}>
+            <ChatInterface />
+          </Suspense>
         </div>
       </div>
     </div>

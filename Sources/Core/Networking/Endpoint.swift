@@ -283,47 +283,6 @@ enum Endpoints {
         var cacheTTL: TimeInterval { 60 } // 1 minute — keep recent enough for chat context
     }
 
-    // MARK: - Study Plans (Stage B2)
-    enum StudyPlansAPI: Endpoint {
-        case list(includeCompleted: Bool)
-        case create(payload: StudyPlanRecordCreate)
-        case get(id: Int)
-        case update(id: Int, payload: StudyPlanRecordUpdate)
-        case delete(id: Int)
-
-        var path: String {
-            switch self {
-            case .list(let includeCompleted):
-                return includeCompleted
-                    ? "/api/v1/me/study_plans?include_completed=true"
-                    : "/api/v1/me/study_plans"
-            case .create:
-                return "/api/v1/me/study_plans"
-            case .get(let id), .update(let id, _), .delete(let id):
-                return "/api/v1/me/study_plans/\(id)"
-            }
-        }
-
-        var method: HTTPMethod {
-            switch self {
-            case .list, .get: return .get
-            case .create: return .post
-            case .update: return .patch
-            case .delete: return .delete
-            }
-        }
-
-        var body: Encodable? {
-            switch self {
-            case .create(let payload): return payload
-            case .update(_, let payload): return payload
-            case .list, .get, .delete: return nil
-            }
-        }
-
-        var cacheTTL: TimeInterval { 60 }
-    }
-
     // MARK: - Chat Module (v1 Chat API)
     enum ChatModule: Endpoint {
         case sendMessage(payload: Data)

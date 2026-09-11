@@ -1,5 +1,5 @@
 // ============================================================
-// LYO Da ONE — Shared TypeScript Types (mirrors iOS models)
+// LYO — Shared TypeScript Types (mirrors iOS models)
 // ============================================================
 
 // ---- Auth & User ----
@@ -69,14 +69,29 @@ export interface ChatBlock {
   metadata?: Record<string, unknown> | null;
 }
 
-/** Narrowed content shape for `type: 'quiz'` blocks — the gradeable check. */
+/**
+ * Narrowed content shape for `type: 'quiz'` blocks — the gradeable check.
+ *
+ * `correct_index`, `explanation` and each option's `reveals` are **stripped by
+ * the server** before a block reaches any client. They used to arrive with the
+ * question, which meant the answer key and the internal misconception tags
+ * were readable in the network tab before the learner chose anything.
+ *
+ * They stay in the type as optional because stored blocks written before the
+ * redaction landed may still carry them, and because the same shape describes
+ * the server-side block. Nothing in the UI may read them: the verdict comes
+ * from `CheckAnswerResult` after submission.
+ */
 export interface ChatQuizContent {
   question: string;
   options: { id: string; text: string; reveals?: string | null }[];
-  /** Present in the payload but NEVER used to decide correctness on the client. */
+  /** Redacted on the wire. Never used to decide correctness on the client. */
   correct_index?: number;
+  /** Redacted on the wire. The post-answer explanation arrives on the result. */
   explanation?: string | null;
+  /** Kept: the learner is meant to be able to ask, and asking is tracked. */
   hint?: string | null;
+  /** Kept: the "just explain it" opt-out has to be visible to be chosen. */
   bailout_index?: number | null;
 }
 
@@ -117,6 +132,42 @@ export interface DueReviewItem {
   days_overdue: number;
   mastery_level?: number | null;
   last_misconception?: string | null;
+}
+
+/**
+ * How many concepts the learner is exploring, has learned, retained and
+ * mastered. Counted server-side from their own evidence — see
+ * `lyo_app/events/concept_summary.py` for what each word is earned by.
+ *
+ * The categories are a funnel, not a partition: a mastered concept is also
+ * learned and retained. Summing them would double-count.
+ */
+export interface ConceptSummary {
+  exploring: number;
+  learned: number;
+  retained: number;
+  mastered: number;
+  total: number;
+}
+
+/**
+ * One concrete next thing to do, and why it was chosen.
+ *
+ * The reason is assembled server-side so every client says the same thing
+ * about the same learner — and so a learner can disagree with it, which is
+ * what makes a recommendation honest rather than oracular.
+ */
+export interface Recommendation {
+  concept_id: string;
+  reason: 'due_for_review' | 'needs_practice';
+  detail: string;
+  /** 0..1, or null when never assessed. Null and zero are different claims. */
+  mastery?: number | null;
+  days_overdue: number;
+}
+
+export interface RecommendationList {
+  items: Recommendation[];
 }
 
 export interface ChatMessage {
@@ -542,3 +593,102 @@ export interface CourseGenerationEvent {
   data: unknown;
   progress: number;
 }
+
+// ── Test prep ──
+//
+// The wire shapes behind /api/v1/me/study_plans. `mastery` and `readiness`
+// are nullable on purpose: null means never assessed, which is a different
+// claim from 0 and must not be rendered as the same number. Read them through
+// web/src/lib/test-prep.mjs rather than formatting them at the call site.
+
+export interface StudyPlanSummary {
+  id: string;
+  status?: string | undefined;
+  created_at?: string | undefined;
+  test_profile_id?: string | undefined;
+  total_sessions?: number | undefined;
+}
+
+export interface TopicStandingRow {
+  topic: string;
+  concept_id: string;
+  weight: number;
+  /** null means never assessed — a different claim from 0. */
+  mastery: number | null;
+  attempts: number;
+}
+
+export interface ReadinessPayload {
+  plan_id: string;
+  subject: string;
+  test_date: string;
+  days_remaining: number | null;
+  readiness: number | null;
+  topics_total: number;
+  topics_assessed: number;
+  topics: TopicStandingRow[];
+  focus_next: string[];
+}
+
+export interface StudySessionRow {
+  id: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  topic: string;
+  session_type: string;
+  concept_id: string;
+  status: string;
+  performance_score: number | null;
+}
+
+export interface IntakeTurn {
+  test_profile_id: string;
+  message_to_user: string;
+  smart_blocks: unknown[];
+  intake_complete: boolean;
+}
+
+/**
+ * What the server measured for a completed session.
+ *
+ * `performance_score` is null when nothing was graded — a session spent
+ * reading is a real session, and the server refuses to invent a figure for
+ * it. Null is not zero here; read it through `completionSummary`.
+ */
+export interface SessionOutcomeReply {
+  ok: boolean;
+  performance_score: number | null;
+  graded: number;
+  seen: number;
+}
+
+/** The Test Prep page's state. See web/src/lib/test-prep-state.mjs. */
+export interface TestPrepState {
+  stage: 'intake' | 'plan';
+  loading: boolean;
+  loadedOnce: boolean;
+  planId: string | null;
+  readiness: ReadinessPayload | null;
+  sessions: StudySessionRow[];
+  sessionsFailed: boolean;
+  refreshFailed: boolean;
+  planLoadFailed: boolean;
+  notice: string | null;
+  finishing: string | null;
+}
+
+export type TestPrepAction =
+  | { type: 'load_started' }
+  | { type: 'plan_loaded'; planId: string }
+  | { type: 'no_plan' }
+  | {
+      type: 'details_loaded';
+      /** Omitted when the call failed — distinct from a null payload. */
+      readiness?: ReadinessPayload | undefined;
+      sessions?: StudySessionRow[] | undefined;
+    }
+  | { type: 'load_failed' }
+  | { type: 'load_settled' }
+  | { type: 'finish_started'; sessionId: string }
+  | { type: 'finish_succeeded'; sessionId: string; notice: string }
+  | { type: 'finish_failed'; notice: string };

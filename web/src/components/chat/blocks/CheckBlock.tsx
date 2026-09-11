@@ -30,9 +30,13 @@ function InlineMarkdown({ text }: { text: string }) {
  * An answerable check inside a chat lesson.
  *
  * The verdict comes from the server. This component deliberately does NOT
- * compare the selection against `correct_index` — even though that field is
- * present on the wire — because deciding correctness on the client is the
- * exact failure this feature exists to remove.
+ * compare the selection against `correct_index`, because deciding correctness
+ * on the client is the exact failure this feature exists to remove.
+ *
+ * That field is no longer on the wire either: the server strips the answer
+ * key, the explanation and the per-option misconception tags before a block
+ * leaves it, so the discipline is enforced rather than merely observed. What
+ * this renders after an answer comes from the server's verdict.
  */
 export default function CheckBlock({
   block,
