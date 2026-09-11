@@ -19,7 +19,12 @@ import {
   stageForPlans,
   topicStanding,
 } from '@/lib/test-prep.mjs';
-import { initialState, staleWarning, testPrepReducer } from '@/lib/test-prep-state.mjs';
+import {
+  initialState,
+  sessionsNote,
+  staleWarning,
+  testPrepReducer,
+} from '@/lib/test-prep-state.mjs';
 import type { ReadinessPayload, StudySessionRow } from '@/types';
 
 /**
@@ -377,7 +382,7 @@ export default function TestPrepPage() {
 
         {due.length === 0 ? (
           <p className="mt-3 text-sm text-white/60">
-            {stale ?? 'Nothing scheduled for today.'}
+            {sessionsNote(state) ?? 'Nothing scheduled for today.'}
           </p>
         ) : (
           <ul className="mt-3 space-y-2">

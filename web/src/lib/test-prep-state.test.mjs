@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { initialState, staleWarning, testPrepReducer } from './test-prep-state.mjs';
+import { initialState, sessionsNote, staleWarning, testPrepReducer } from './test-prep-state.mjs';
 
 /** Apply a sequence of actions, as the page would. */
 const run = (...actions) => actions.reduce(testPrepReducer, initialState);
@@ -49,9 +49,11 @@ test('a failed first load sends them to intake and says so', () => {
 
 test('every failure has somewhere to be said', () => {
   // refreshFailed was set by the reducer and rendered nowhere for a whole
-  // commit, which is how a failed refresh after finishing became silent.
+  // commit, which is how a failed refresh after finishing became silent. Each
+  // failure now has exactly one place, which is why this checks a different
+  // function per failure rather than one for both.
   assert.ok(staleWarning(testPrepReducer(loaded(), { type: 'load_failed' })));
-  assert.ok(staleWarning(testPrepReducer(loaded(), { type: 'details_loaded' })));
+  assert.ok(sessionsNote(testPrepReducer(loaded(), { type: 'details_loaded' })));
   assert.equal(staleWarning(loaded()), null);
   assert.equal(staleWarning(null), null);
 });
@@ -144,4 +146,44 @@ test('finishing a session that is not in the list is harmless', () => {
     notice: 'Done.',
   });
   assert.equal(state.sessions.length, 2);
+});
+
+// ─── One failure, one sentence, in the right place ───────────────────────────
+
+test('a page refresh failure does not overwrite a genuinely empty day', () => {
+  // The sessions call succeeded and returned nothing; that is a fact about the
+  // day. Only the overall refresh failed, which is a fact about the request.
+  const empty = testPrepReducer(loaded(), { type: 'details_loaded', sessions: [] });
+  const state = testPrepReducer(empty, { type: 'load_failed' });
+  assert.ok(staleWarning(state), 'the page should say it could not refresh');
+  assert.equal(sessionsNote(state), null, 'the day is empty, not unknown');
+});
+
+test('a failed sessions call is reported in the Today section', () => {
+  const state = testPrepReducer(loaded(), { type: 'details_loaded' });
+  assert.ok(sessionsNote(state));
+});
+
+test('two different failures never produce the same sentence twice', () => {
+  const both = testPrepReducer(
+    testPrepReducer(loaded(), { type: 'details_loaded' }),
+    { type: 'load_failed' }
+  );
+  assert.ok(staleWarning(both));
+  assert.ok(sessionsNote(both));
+  assert.notEqual(staleWarning(both), sessionsNote(both));
+});
+
+test('all well means neither says anything', () => {
+  assert.equal(staleWarning(loaded()), null);
+  assert.equal(sessionsNote(loaded()), null);
+  assert.equal(sessionsNote(null), null);
+});
+
+test('a failed sessions call does not claim the whole page is stale', () => {
+  // Readiness, the plan and the countdown all loaded fine. Saying the page may
+  // be out of date would overstate one failed call into a page-wide doubt.
+  const state = testPrepReducer(loaded(), { type: 'details_loaded' });
+  assert.equal(staleWarning(state), null);
+  assert.ok(sessionsNote(state));
 });

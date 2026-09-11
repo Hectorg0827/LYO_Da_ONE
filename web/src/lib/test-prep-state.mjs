@@ -120,23 +120,33 @@ export function testPrepReducer(state = initialState, action) {
 }
 
 /**
- * Is the learner looking at a stale or incomplete plan view?
+ * A page-level note that what is shown may be out of date.
  *
- * Exists so the plan branch has a single thing to render a warning from.
- * `refreshFailed` alone was set by the reducer and rendered nowhere, which is
- * how a failed refresh after finishing a session became silent.
- */
-/**
+ * Deliberately *only* about the whole-page refresh. It used to also report a
+ * failed sessions call, which meant the same sentence appeared twice on an
+ * empty day — once in the header and once as the Today copy — and, worse, a
+ * page refresh failure overwrote "Nothing scheduled for today" even when the
+ * sessions list was known-good and genuinely empty.
+ *
  * @param {import('../types').TestPrepState | null | undefined} state
  * @returns {string | null}
  */
 export function staleWarning(state) {
-  if (!state) return null;
-  if (state.refreshFailed) {
-    return 'I could not refresh this just now, so it may be out of date.';
-  }
-  if (state.sessionsFailed) {
-    return 'I could not load today’s sessions just now.';
-  }
-  return null;
+  if (!state?.refreshFailed) return null;
+  return 'I could not refresh this just now, so it may be out of date.';
+}
+
+/**
+ * What the Today section says when it has no sessions to show.
+ *
+ * Returns null when the list is legitimately empty — the caller supplies
+ * "Nothing scheduled for today" — and a sentence only when the sessions call
+ * itself failed, which is a fact about the request and not about the day.
+ *
+ * @param {import('../types').TestPrepState | null | undefined} state
+ * @returns {string | null}
+ */
+export function sessionsNote(state) {
+  if (!state?.sessionsFailed) return null;
+  return 'I could not load today’s sessions just now.';
 }

@@ -32,15 +32,20 @@ const stripComments = (source) =>
 const readCode = (path) => stripComments(read(path));
 const failures = [];
 
+const checked = new Set();
+
 function requireText(source, expected, label) {
+  checked.add(label);
   if (!source.includes(expected)) failures.push(`${label}: missing ${JSON.stringify(expected)}`);
 }
 
 function rejectText(source, forbidden, label) {
+  checked.add(label);
   if (source.includes(forbidden)) failures.push(`${label}: forbidden ${JSON.stringify(forbidden)}`);
 }
 
 function rejectPattern(source, pattern, label) {
+  checked.add(label);
   if (pattern.test(source)) failures.push(`${label}: forbidden pattern ${pattern}`);
 }
 
@@ -411,13 +416,18 @@ requireText(testPrep, "kind: 'unscored'", 'A session with nothing graded cannot 
 requireText(testPrepPage, "summary.kind === 'unscored'", 'The page has no branch for "nothing was graded"');
 requireText(testPrepTest, 'completionSummary', 'The completion rules are not exercised by tests');
 
-// A failed request is not a fact about the learner. An empty session list
-// rendered as "Nothing scheduled for today" claims something about their day
-// that the page does not know — the same failure it already avoids for the
-// plan list and for readiness.
-// Asserted on the copy the learner actually reads, not on a variable name:
-// an earlier version of this check matched the identifier, which a rename
-// satisfied while the page still said "Nothing scheduled for today".
+// The score is the server's to determine. Sending one is the §30 violation
+// this endpoint was fixed for, whatever the field is called or where it is
+// put. These two were deleted by an over-wide edit while the prose above them
+// survived, which left the gate documenting a rule it no longer enforced —
+// see REQUIRED_RULES at the foot of this file.
+rejectText(apiClient, 'performance_score=', 'The client sends its own session score');
+rejectPattern(
+  apiClient,
+  /performance_score:\s*[^,\n]/,
+  'The client puts a session score in a request body'
+);
+
 // The plan view's state lives in a reducer so these combinations can be
 // unit-tested. Four consecutive review findings on this page were different
 // combinations of eighteen useStates, the last a defect in the fix for the one
@@ -437,6 +447,11 @@ rejectPattern(
 // Every failure has somewhere to be said. `refreshFailed` was set and rendered
 // nowhere for a whole commit, which made a failed refresh completely silent.
 requireText(testPrepPage, 'staleWarning(state)', 'A stale or failed refresh is not shown to the learner');
+// Each failure gets exactly one sentence in one place. Rendering the same
+// note in the header and as the Today copy showed it twice on an empty day,
+// and let a page-refresh failure overwrite "Nothing scheduled for today" when
+// the sessions list was known-good and genuinely empty.
+requireText(testPrepPage, 'sessionsNote(state)', 'A failed sessions call has no note of its own');
 requireText(testPrepState, 'planLoadFailed', 'A failed refresh cannot be told from having no plan');
 
 // The transitions that caused rounds six through nine, covered by name.
@@ -482,6 +497,36 @@ for (const [source, label] of [
 }
 requireText(layout, "default: 'LYO',", 'Web canonical document title');
 requireText(manifest, '"name": "LYO"', 'Web canonical app name');
+
+// ── Rules that must never quietly stop running ──────────────────────────────
+//
+// Deleting an assertion makes a gate *greener*, so a passing run after an edit
+// proves nothing about whether the edit removed a protection. That is not
+// hypothetical: an over-wide edit to this file deleted both client-declared
+// score checks while leaving their explanatory comment in place, and the gate
+// went on passing — documenting a rule it no longer enforced.
+//
+// These are the rules whose absence would be worst: the ones that stop the
+// product claiming things about a learner that nothing measured. If a label
+// here never ran, the gate fails whatever else passed.
+const REQUIRED_RULES = [
+  'The client sends its own session score',
+  'The client puts a session score in a request body',
+  'Client declares its own correctness',
+  'Test prep cannot tell "not started" from a measured zero',
+  'A topic never assessed has no distinct standing',
+  'The page renders the raw readiness figure',
+  'An unmeasured standing falls back to zero',
+  'A session with nothing graded cannot be told apart from a zero',
+  'The plan view mutates state outside the reducer',
+  'A stale or failed refresh is not shown to the learner',
+];
+
+for (const rule of REQUIRED_RULES) {
+  if (!checked.has(rule)) {
+    failures.push(`A required gate rule was deleted rather than run: "${rule}"`);
+  }
+}
 
 if (failures.length) {
   console.error('Product-trust gate failed:\n');
