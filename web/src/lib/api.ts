@@ -8,6 +8,10 @@ import type {
   User,
   ChatBlock,
   ConceptSummary,
+  IntakeTurn,
+  ReadinessPayload,
+  StudyPlanSummary,
+  StudySessionRow,
   RecommendationList,
   CheckAnswerResult,
   SessionSummary,
@@ -800,6 +804,70 @@ export const api = {
         `/api/v1/personalization/recommendations?limit=${limit}`,
         { optionalAuth: true }
       );
+    },
+  },
+
+  // ── Test prep ──
+  //
+  // The server has had all of this since Phase E and no client called any of
+  // it, so no learner anywhere could create a study plan — which made
+  // readiness, today's sessions and plan stats endpoints with no possible
+  // data. A plan is built from a conversational intake, not posted in one go:
+  // `intakeTurn` until the server says it is complete, then `generatePlan`.
+  testPrep: {
+    /**
+     * This learner's study plans. Empty is the normal first state.
+     *
+     * Optional auth: the page is reachable from the front door, and a guest
+     * looking at it should be invited to sign in, not ejected to /auth/login.
+     */
+    async plans() {
+      return request<StudyPlanSummary[]>('/api/v1/me/study_plans', { optionalAuth: true });
+    },
+
+    /** One turn of the intake conversation that builds a test profile. */
+    async intakeTurn(userMessage: string, testProfileId?: string) {
+      return request<IntakeTurn>('/api/v1/me/study_plans/intake/turn', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_message: userMessage,
+          test_profile_id: testProfileId ?? null,
+        }),
+      });
+    },
+
+    /**
+     * Turn a completed profile into a plan and its scheduled sessions.
+     *
+     * `test_profile_id` is a query parameter, not a body field — that is how
+     * the route declares it.
+     */
+    async generatePlan(testProfileId: string) {
+      return request<{ plan_id: string; total_sessions: number }>(
+        `/api/v1/me/study_plans/plans/generate?test_profile_id=${encodeURIComponent(testProfileId)}`,
+        { method: 'POST' }
+      );
+    },
+
+    /**
+     * How ready this learner is for one test, weighted by topic.
+     *
+     * Read it through `readinessHeadline` rather than rendering the number
+     * directly: a plan with nothing assessed yet carries a readiness of 0,
+     * and showing that as "0% ready" claims a measurement nobody took.
+     */
+    async readiness(planId: string) {
+      return request<ReadinessPayload>(
+        `/api/v1/me/study_plans/plans/${encodeURIComponent(planId)}/readiness`,
+        { optionalAuth: true }
+      );
+    },
+
+    /** Today's scheduled sessions, each carrying the concept id to teach. */
+    async todaySessions() {
+      return request<StudySessionRow[]>('/api/v1/me/study_plans/sessions/today', {
+        optionalAuth: true,
+      });
     },
   },
 

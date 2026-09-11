@@ -349,6 +349,50 @@ for (const [call, label] of [
   requireText(thisCall, 'optionalAuth', `${label} can evict a guest from Home`);
 }
 
+// ── 3i. Test prep never reports a measurement nobody took ───────────────────
+//
+// A plan with nothing assessed yet carries a readiness of 0. Rendering that
+// as "0% ready" tells a learner they failed something nobody ever asked them
+// — the same fabrication as the random activity heatmap, arrived at by
+// arithmetic rather than by Math.random().
+//
+// The page must branch on the *kind* of answer, never on the number.
+
+const testPrep = readCode('web/src/lib/test-prep.mjs');
+const testPrepPage = readCode('web/src/app/(main)/test-prep/page.tsx');
+const testPrepTest = readCode('web/src/lib/test-prep.test.mjs');
+
+requireText(testPrep, "kind: 'unmeasured'", 'Test prep cannot tell "not started" from a measured zero');
+requireText(testPrep, "kind: 'not_started'", 'A topic never assessed has no distinct standing');
+requireText(testPrepTest, 'readinessHeadline', 'The readiness rules are not exercised by tests');
+
+// The page reads the classified answer, not the raw figure. Reading
+// `readiness.readiness` directly is how "0% ready" gets back on screen.
+requireText(testPrepPage, 'readinessHeadline(', 'The page formats readiness itself instead of asking');
+requireText(testPrepPage, "headline.kind === 'unmeasured'", 'The page has no branch for "nothing measured yet"');
+requireText(testPrepPage, 'topicStanding(', 'The page formats a topic score itself instead of asking');
+rejectPattern(
+  testPrepPage,
+  /\{\s*readiness\.readiness\s*\}/,
+  'The page renders the raw readiness figure'
+);
+// `percent ?? 0` would collapse every unmeasured case back to zero, which is
+// exactly the bug the `kind` field exists to prevent.
+rejectPattern(testPrepPage, /percent\s*\?\?\s*0/, 'An unmeasured standing falls back to zero');
+
+// Creating a plan is the whole point: without it, readiness reports on
+// nothing, which is the state every learner was in before this page existed.
+requireText(testPrepPage, 'api.testPrep.intakeTurn', 'Test prep cannot create a plan');
+requireText(testPrepPage, 'api.testPrep.generatePlan', 'Test prep never turns intake into a plan');
+// The server decides when intake is done. A client counting turns would
+// generate a plan from a half-finished profile.
+requireText(testPrep, 'turn.intake_complete === true', 'The client decides when intake is complete');
+
+// A session enters the Classroom through the shared entry contract, so
+// practice does not open in review mode here while it does everywhere else.
+requireText(testPrep, 'practiceEntryHref(topic)', 'A practice session does not use the shared entry contract');
+requireText(testPrep, 'reviewEntryHref(topic)', 'A review session does not use the shared entry contract');
+
 // ── 3g. An unknown explorable must not eat the lesson ───────────────────────
 //
 // `canRenderBlock` decides whether MessageBubble may hide the prose fallback.

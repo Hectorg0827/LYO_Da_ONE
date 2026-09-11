@@ -421,6 +421,64 @@ endpoint would split it.
 
 ---
 
+### 7.5 Test Prep gets a face, and a way to exist at all
+
+§7.3 recorded that iOS's study-plan integration was inert. The larger fact
+behind it: **no learner on any platform could create a study plan.** The only
+writers of `TestProfile`, `StudyPlan` and `StudySession` are `intake_turn` and
+`plans/generate`, and nothing called either — so `readiness`, `sessions/today`
+and `plans/{id}/stats` were live endpoints with no possible data, and the
+Phase E work of §7.3 reported on tables that were empty for everyone.
+
+`web/src/app/(main)/test-prep/page.tsx` is both halves. A learner with no plan
+is asked about their test by the server's own intake coach, one question at a
+time, and the answers become a plan with scheduled sessions. A learner with a
+plan sees where they stand and steps from a session into the Classroom.
+
+| Piece | Where |
+| --- | --- |
+| Rules about what a learner is told | `web/src/lib/test-prep.mjs` (27 tests) |
+| The page | `web/src/app/(main)/test-prep/page.tsx` |
+| Reachable from | the sidebar, `/test-prep` |
+
+**The rule this page exists to get right.** A plan with nothing assessed yet
+carries a readiness of `0`. Rendering that as "0% ready" tells a learner they
+failed something nobody ever asked them — the same fabrication as the
+`Math.random()` activity heatmap Phase A removed, arrived at by arithmetic
+instead. So `readinessHeadline` returns a *kind* rather than a number:
+`unmeasured` ("you haven't been tested on any of this yet"), `unknown` (no
+topics, so nothing to be ready for), or `measured`. The page branches on the
+kind, and the gate rejects both rendering the raw figure and `percent ?? 0`,
+which would collapse every unmeasured case straight back to zero.
+
+`topicStanding` draws the same line per topic: `mastery: null` reads "Not
+started", never "0%".
+
+**Found by the tests, not by review.** `Number(null)` is `0` in JavaScript, so
+the first version of `readinessHeadline` reported a null readiness as a
+measured 0%. A test written for the honest behaviour caught it before the page
+existed.
+
+**A session opens the Classroom through the shared entry contract**, so a
+practice session does not open in review mode here while it opens correctly
+everywhere else — the distinction §7.1 had to fix once already. An
+unrecognised `session_type` is taught rather than guessed into a mode, so a
+future planner inventing a type cannot silently start writing the wrong kind
+of evidence.
+
+**Guests.** The page is reachable from the nav, and a study plan needs an
+account. A signed-out visitor is offered sign-in *and* the guest-safe route
+that already worked — Chat on the test-prep turn — rather than being bounced
+to `/auth/login` by a supplementary call, which is the §7.2 failure.
+
+**Still open.** iOS has no test-prep surface; §7.3 applies. The plan's
+`stats` endpoint has no UI. Nothing yet calls `sessions/{id}/complete` from
+the web page, so a session is entered but not closed out — the readiness
+figure is unaffected either way, since it reads the evidence ladder rather
+than session bookkeeping.
+
+---
+
 ## 8. Phase A — what landed
 
 | Change | Where |

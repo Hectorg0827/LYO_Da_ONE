@@ -593,3 +593,57 @@ export interface CourseGenerationEvent {
   data: unknown;
   progress: number;
 }
+
+// ── Test prep ──
+//
+// The wire shapes behind /api/v1/me/study_plans. `mastery` and `readiness`
+// are nullable on purpose: null means never assessed, which is a different
+// claim from 0 and must not be rendered as the same number. Read them through
+// web/src/lib/test-prep.mjs rather than formatting them at the call site.
+
+export interface StudyPlanSummary {
+  id: string;
+  status?: string | undefined;
+  created_at?: string | undefined;
+  test_profile_id?: string | undefined;
+  total_sessions?: number | undefined;
+}
+
+export interface TopicStandingRow {
+  topic: string;
+  concept_id: string;
+  weight: number;
+  /** null means never assessed — a different claim from 0. */
+  mastery: number | null;
+  attempts: number;
+}
+
+export interface ReadinessPayload {
+  plan_id: string;
+  subject: string;
+  test_date: string;
+  days_remaining: number | null;
+  readiness: number | null;
+  topics_total: number;
+  topics_assessed: number;
+  topics: TopicStandingRow[];
+  focus_next: string[];
+}
+
+export interface StudySessionRow {
+  id: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  topic: string;
+  session_type: string;
+  concept_id: string;
+  status: string;
+  performance_score: number | null;
+}
+
+export interface IntakeTurn {
+  test_profile_id: string;
+  message_to_user: string;
+  smart_blocks: unknown[];
+  intake_complete: boolean;
+}
