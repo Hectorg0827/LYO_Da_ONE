@@ -37,6 +37,7 @@ struct FocusView: View {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         greeting
                         profileMetrics
+                        testPrepSection
                         WeeklyQuestBanner()
                         continueLearningSection
                         recentLearningSection
@@ -149,6 +150,50 @@ struct FocusView: View {
                 title: "Profile data unavailable",
                 message: "Pull to refresh your account data. No learner totals are being estimated."
             )
+        }
+    }
+
+    /// The way in to Test Prep.
+    ///
+    /// Until this existed, no iOS learner could create a study plan at all:
+    /// a plan is built by a conversation with the server (`intake/turn` until
+    /// it says it has enough, then `plans/generate`), and nothing on this
+    /// platform ran it. The readiness, today's-sessions and stats endpoints
+    /// were live the whole time with no possible data behind them.
+    private var testPrepSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            FocusSectionHeader(
+                title: "Have a test coming up?",
+                subtitle: "Tell me what and when, and I'll plan it with you"
+            )
+
+            NavigationLink {
+                TestPrepView()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 22))
+                        .foregroundStyle(DesignTokens.Colors.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Test prep")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Text("See how ready you are, and what to do first")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.52))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens test prep, where you can build a study plan")
         }
     }
 

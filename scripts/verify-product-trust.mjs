@@ -512,6 +512,86 @@ requireText(manifest, '"name": "LYO"', 'Web canonical app name');
 // These are the rules whose absence would be worst: the ones that stop the
 // product claiming things about a learner that nothing measured. If a label
 // here never ran, the gate fails whatever else passed.
+// ── 3k. iOS Test Prep obeys the same rules as the web one ──────────────────
+//
+// iOS had no test-prep surface at all, and before that it had one that lied:
+// a service whose comment said it persisted the learner's plan, POSTing to a
+// route the server registers for GET only — a 405 that `try?` discarded on
+// every call. See docs/CLASSROOM_ARCHITECTURE.md §7.4.
+//
+// The replacement is held to the web surface's rules rather than a softer
+// set, because the failure mode is identical on both and only one of them can
+// be clicked through by the people working on it. The decisions live in
+// TestPrepPresentation and TestPrepState precisely so these assertions have
+// something to point at.
+
+const iosTestPrepService = readCode('Sources/Services/TestPrepPlanService.swift');
+const iosTestPrepRules = readCode('Sources/Models/TestPrepPresentation.swift');
+const iosTestPrepState = readCode('Sources/ViewModels/TestPrepViewModel.swift');
+const iosTestPrepView = readCode('Sources/Views/Main/TestPrep/TestPrepView.swift');
+const iosTestPrepTests = readCode('Sources/Tests/TestPrepTests.swift');
+const iosFocus = readCode('Sources/Views/Main/ProductionFocusView.swift');
+
+// The §30 rule, in the one place iOS could break it. The server derives the
+// outcome from evidence it recorded itself; a device that sends a figure is
+// asserting something about its owner that nothing measured.
+rejectText(
+  iosTestPrepService,
+  'performance_score',
+  'iOS sends its own session score'
+);
+rejectPattern(
+  iosTestPrepService,
+  /performanceScore\s*:/,
+  'iOS puts a session score in a study-plan request'
+);
+
+// A plan with nothing assessed carries a readiness of 0. "0% ready" and "you
+// have not started" are the same number and a different claim about a person.
+requireText(
+  iosTestPrepRules,
+  'case notStarted',
+  'iOS cannot tell "not started" from a measured zero'
+);
+requireText(
+  iosTestPrepView,
+  'case .notStarted',
+  'The iOS readiness card has no branch for "nothing measured yet"'
+);
+// `?? 0` on either figure is the whole bug, written as a convenience.
+rejectPattern(
+  iosTestPrepRules,
+  /(readiness|mastery|performanceScore)\s*\?\?\s*0/,
+  'An unmeasured iOS figure falls back to zero'
+);
+
+// The server decides when intake is finished, not a client counting turns.
+requireText(
+  iosTestPrepRules,
+  'turn.intakeComplete',
+  'iOS decides for itself when intake is complete'
+);
+
+// A plan is built by the conversation or not at all.
+requireText(iosTestPrepState, 'service.intakeTurn', 'iOS test prep cannot create a plan');
+requireText(iosTestPrepState, 'service.generatePlan', 'iOS never turns intake into a plan');
+
+// Reachable from a real screen. A surface nothing routes to is the same kind
+// of claim as a service that never persisted anything.
+requireText(iosFocus, 'TestPrepView()', 'iOS test prep is not reachable from anywhere');
+
+// The state lives where tests can drive it. On web the equivalent screen took
+// six rounds of review findings, four of them defects in the previous round's
+// fix, until the decisions moved out of the view. Nobody in this workstream
+// can tap through the iOS build, so this matters more here, not less.
+requireText(iosTestPrepTests, 'readinessHeadline', 'The iOS readiness rules are not exercised by tests');
+requireText(iosTestPrepTests, 'todayCopy', 'The iOS Today copy is not exercised by tests');
+rejectPattern(
+  iosTestPrepView,
+  /@State\s+private\s+var\s+(readiness|sessions|planId|notice|finishing|stage)\b/,
+  'The iOS plan view grew its own copy of the state back'
+);
+
 const REQUIRED_RULES = [
   'The client sends its own session score',
   'The client puts a session score in a request body',
@@ -524,6 +604,11 @@ const REQUIRED_RULES = [
   'The plan view mutates state outside the reducer',
   'A stale or failed refresh is not shown to the learner',
   'The Today section decides its own copy again',
+  'iOS sends its own session score',
+  'iOS puts a session score in a study-plan request',
+  'iOS cannot tell "not started" from a measured zero',
+  'An unmeasured iOS figure falls back to zero',
+  'iOS test prep is not reachable from anywhere',
 ];
 
 for (const rule of REQUIRED_RULES) {
