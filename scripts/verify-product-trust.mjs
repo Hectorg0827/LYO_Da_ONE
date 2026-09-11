@@ -393,6 +393,29 @@ requireText(testPrep, 'turn.intake_complete === true', 'The client decides when 
 requireText(testPrep, 'practiceEntryHref(topic)', 'A practice session does not use the shared entry contract');
 requireText(testPrep, 'reviewEntryHref(topic)', 'A review session does not use the shared entry contract');
 
+// ── 3j. Finishing a session reports what the server measured ────────────────
+//
+// The completion route used to take `performance_score` from the client and
+// store it as the learner's performance. It now derives the outcome from the
+// evidence the server recorded and replies with what it found — including
+// "nothing was graded", which is the common case for a session spent reading.
+//
+// So the client must send no score, and must not imply one it did not get.
+
+requireText(testPrepPage, 'api.testPrep.completeSession', 'A session can be started but never finished');
+requireText(testPrep, "kind: 'unscored'", 'A session with nothing graded cannot be told apart from a zero');
+requireText(testPrepPage, "summary.kind === 'unscored'", 'The page has no branch for "nothing was graded"');
+requireText(testPrepTest, 'completionSummary', 'The completion rules are not exercised by tests');
+
+// The score is the server's to determine. Sending one is the exact §30
+// violation this endpoint was fixed for, whatever the field is called.
+rejectText(apiClient, 'performance_score=', 'The client sends its own session score');
+rejectPattern(
+  apiClient,
+  /performance_score:\s*[^,\n]/,
+  'The client puts a session score in a request body'
+);
+
 // ── 3g. An unknown explorable must not eat the lesson ───────────────────────
 //
 // `canRenderBlock` decides whether MessageBubble may hide the prose fallback.

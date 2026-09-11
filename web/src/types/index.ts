@@ -647,3 +647,17 @@ export interface IntakeTurn {
   smart_blocks: unknown[];
   intake_complete: boolean;
 }
+
+/**
+ * What the server measured for a completed session.
+ *
+ * `performance_score` is null when nothing was graded — a session spent
+ * reading is a real session, and the server refuses to invent a figure for
+ * it. Null is not zero here; read it through `completionSummary`.
+ */
+export interface SessionOutcomeReply {
+  ok: boolean;
+  performance_score: number | null;
+  graded: number;
+  seen: number;
+}

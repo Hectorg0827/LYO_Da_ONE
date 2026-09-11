@@ -179,3 +179,49 @@ export function openSessions(sessions) {
 export function intakeIsComplete(turn) {
   return Boolean(turn && turn.intake_complete === true && turn.test_profile_id);
 }
+
+/**
+ * What to tell a learner who just finished a session.
+ *
+ * This is the visible half of the Phase E trust fix. The client used to send
+ * `performance_score` and the server stored whatever arrived; now the client
+ * sends nothing and the server replies with what it actually measured. So the
+ * only honest thing to show is that reply — including when the reply is
+ * "nothing was graded", which is the common case for a session spent reading.
+ *
+ * Returns `{ kind, percent, graded, seen }`:
+ *
+ * - `scored` — the server graded work and derived a figure from it.
+ * - `unscored` — the learner met the concept but nothing asked them to
+ *   demonstrate it. Not a zero. Reporting it as one would invent the failure
+ *   that removing client-sent scores was meant to stop.
+ * - `empty` — the server saw nothing at all for this session.
+ * - `unknown` — no usable reply; say so rather than assume it worked.
+ */
+export function completionSummary(result) {
+  if (!result || typeof result !== 'object') {
+    return { kind: 'unknown', percent: null, graded: 0, seen: 0 };
+  }
+
+  const graded = Number.isFinite(Number(result.graded)) ? Number(result.graded) : 0;
+  const seen = Number.isFinite(Number(result.seen)) ? Number(result.seen) : 0;
+
+  // Checked before coercing: `Number(null)` is 0, so a null score would
+  // otherwise be reported as a graded zero — the learner measured and failed
+  // at something nobody asked them.
+  const hasScore = result.performance_score !== null && result.performance_score !== undefined;
+  const score = hasScore ? Number(result.performance_score) : NaN;
+
+  if (graded > 0 && Number.isFinite(score)) {
+    return {
+      kind: 'scored',
+      percent: Math.round(Math.max(0, Math.min(1, score)) * 100),
+      graded,
+      seen,
+    };
+  }
+  if (seen > 0 || graded > 0) {
+    return { kind: 'unscored', percent: null, graded, seen };
+  }
+  return { kind: 'empty', percent: null, graded: 0, seen: 0 };
+}

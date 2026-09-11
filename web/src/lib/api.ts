@@ -11,6 +11,7 @@ import type {
   IntakeTurn,
   ReadinessPayload,
   StudyPlanSummary,
+  SessionOutcomeReply,
   StudySessionRow,
   RecommendationList,
   CheckAnswerResult,
@@ -868,6 +869,25 @@ export const api = {
       return request<StudySessionRow[]>('/api/v1/me/study_plans/sessions/today', {
         optionalAuth: true,
       });
+    },
+
+    /**
+     * Close a session out. Deliberately sends no score.
+     *
+     * The route used to take `performance_score` as a query parameter — the
+     * device saying how well its owner had done — and stored it as the
+     * learner's performance. It now derives the outcome from the evidence the
+     * server itself recorded while the session was open, and replies with what
+     * it measured. Read that reply through `completionSummary`; a session
+     * where nothing was graded comes back with a null score, which is not a
+     * zero.
+     */
+    async completeSession(sessionId: string, notes = '') {
+      return request<SessionOutcomeReply>(
+        `/api/v1/me/study_plans/sessions/${encodeURIComponent(sessionId)}/complete`
+          + `?user_notes=${encodeURIComponent(notes)}`,
+        { method: 'POST' }
+      );
     },
   },
 

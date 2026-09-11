@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { TEST_PREP_OPENING_TURN, testPrepEntryHref } from '@/lib/entry-contract.mjs';
 import {
   STAGE_PLAN,
+  completionSummary,
   currentPlan,
   daysLabel,
   intakeIsComplete,
@@ -19,6 +20,8 @@ import {
   topicStanding,
 } from '@/lib/test-prep.mjs';
 import type { ReadinessPayload, StudySessionRow } from '@/types';
+
+type Finished = { sessionId: string; text: string };
 
 /**
  * Test Prep — the face on a learner loop that had none.
@@ -56,6 +59,8 @@ export default function TestPrepPage() {
   const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
   const [sessions, setSessions] = useState<StudySessionRow[]>([]);
   const [failed, setFailed] = useState(false);
+  const [finishing, setFinishing] = useState<string | null>(null);
+  const [finished, setFinished] = useState<Finished | null>(null);
 
   // Intake conversation
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -140,6 +145,38 @@ export default function TestPrepPage() {
       }
     },
     [loadPlan, profileId, sending]
+  );
+
+  const finishSession = useCallback(
+    async (sessionId: string) => {
+      if (finishing) return;
+      setFinishing(sessionId);
+      try {
+        const summary = completionSummary(await api.testPrep.completeSession(sessionId));
+
+        // Say what the server measured, including when it measured nothing.
+        // The client sends no score and must not imply one: "done" with a
+        // silent 0% would be the fabrication this endpoint was fixed to stop.
+        const text =
+          summary.kind === 'scored'
+            ? `Scored ${summary.percent}% from ${summary.graded} graded ${
+                summary.graded === 1 ? 'answer' : 'answers'
+              }.`
+            : summary.kind === 'unscored'
+              ? 'Marked done. Nothing in this session was graded, so there is no score — answer a check in the Classroom and it will count.'
+              : summary.kind === 'empty'
+                ? 'Marked done. Nothing was recorded for this session.'
+                : 'Marked done, but I could not read what was measured.';
+
+        setFinished({ sessionId, text });
+        await loadPlan();
+      } catch {
+        setFinished({ sessionId, text: 'I could not mark that done just now.' });
+      } finally {
+        setFinishing(null);
+      }
+    },
+    [finishing, loadPlan]
   );
 
   // Open with the coach's first question rather than an empty box, so the
@@ -330,6 +367,10 @@ export default function TestPrepPage() {
           <ul className="mt-3 space-y-2">
             {due.map((session) => {
               const href = sessionEntryHref(session);
+              // Checked rather than optional-chained so the narrowing holds
+              // when the text is read below.
+              const note =
+                finished && finished.sessionId === session.id ? finished.text : null;
               const body = (
                 <>
                   <span className="flex-1 text-white/90">{session.topic}</span>
@@ -339,24 +380,39 @@ export default function TestPrepPage() {
                 </>
               );
               return (
-                <li key={session.id}>
-                  {href ? (
-                    <Link
-                      href={href}
-                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 hover:bg-white/[0.07]"
+                <li key={session.id} className="space-y-2">
+                  <div className="flex items-stretch gap-2">
+                    {href ? (
+                      <Link
+                        href={href}
+                        className="flex flex-1 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 hover:bg-white/[0.07]"
+                      >
+                        <GraduationCap className="h-4 w-4 text-white/50" aria-hidden />
+                        {body}
+                      </Link>
+                    ) : (
+                      // No topic means nothing to teach. A dead link into an
+                      // empty Classroom is worse than a row that plainly is
+                      // not one.
+                      <div className="flex flex-1 items-center gap-3 rounded-xl border border-white/10 px-4 py-3 opacity-60">
+                        <GraduationCap className="h-4 w-4 text-white/50" aria-hidden />
+                        {body}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void finishSession(session.id)}
+                      disabled={finishing === session.id}
+                      className="shrink-0 rounded-xl border border-white/10 px-3 text-sm text-white/70 hover:bg-white/[0.07] disabled:opacity-40"
                     >
-                      <GraduationCap className="h-4 w-4 text-white/50" aria-hidden />
-                      {body}
-                    </Link>
-                  ) : (
-                    // No topic means nothing to teach. A dead link into an
-                    // empty Classroom is worse than a row that plainly is not
-                    // one.
-                    <div className="flex items-center gap-3 rounded-xl border border-white/10 px-4 py-3 opacity-60">
-                      <GraduationCap className="h-4 w-4 text-white/50" aria-hidden />
-                      {body}
-                    </div>
-                  )}
+                      {finishing === session.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : (
+                        'Done'
+                      )}
+                    </button>
+                  </div>
+                  {note && <p className="px-1 text-sm text-white/60">{note}</p>}
                 </li>
               );
             })}

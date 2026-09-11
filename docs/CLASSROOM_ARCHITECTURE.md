@@ -471,11 +471,31 @@ account. A signed-out visitor is offered sign-in *and* the guest-safe route
 that already worked — Chat on the test-prep turn — rather than being bounced
 to `/auth/login` by a supplementary call, which is the §7.2 failure.
 
-**Still open.** iOS has no test-prep surface; §7.3 applies. The plan's
-`stats` endpoint has no UI. Nothing yet calls `sessions/{id}/complete` from
-the web page, so a session is entered but not closed out — the readiness
-figure is unaffected either way, since it reads the evidence ladder rather
-than session bookkeeping.
+**Closing a session out.** A learner can now mark a session done, and this is
+where the Phase E trust fix becomes visible. The client sends **no score** —
+the route derives the outcome from the evidence the server itself recorded and
+replies with what it found. The page reports that reply, including the common
+case: *"Nothing in this session was graded, so there is no score."*
+
+`completionSummary` keeps the three answers apart. `scored` is a figure with
+graded work behind it; `unscored` is a session where the learner met the
+concept but nothing asked them to demonstrate it — **not a zero**; `empty` is
+nothing recorded at all. A silent 0% on "done" would reintroduce by omission
+exactly the fabrication that removing client-sent scores removed.
+
+Two guards are worth naming because both were found by mutating the code and
+watching nothing fail. `Number(null)` is `0`, so a null score is checked for
+before it is coerced. And a score is only reported when `graded > 0`: the
+server cannot currently send a figure with nothing graded behind it, but the
+figure is only meaningful as a summary of graded work, so the client refuses
+to render one that has none.
+
+The gate rejects `performance_score` appearing in any client request, as a
+query parameter or in a body.
+
+**Still open.** iOS has no test-prep surface; §7.3 applies. The plan's `stats`
+endpoint has no UI — `readiness` covers the same ground more honestly, so it
+may simply not need one.
 
 ---
 

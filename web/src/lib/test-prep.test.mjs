@@ -5,6 +5,7 @@ import {
   STAGE_INTAKE,
   STAGE_PLAN,
   currentPlan,
+  completionSummary,
   daysLabel,
   intakeIsComplete,
   openSessions,
@@ -224,4 +225,64 @@ test('a truthy-but-not-true completion flag does not end intake', () => {
   // The client must not decide intake is over because the field was present.
   assert.equal(intakeIsComplete({ intake_complete: 'yes', test_profile_id: 'p1' }), false);
   assert.equal(intakeIsComplete({ intake_complete: 1, test_profile_id: 'p1' }), false);
+});
+
+// ─── Finishing a session reports what the server measured ────────────────────
+
+test('a graded session reports the score the server derived', () => {
+  const summary = completionSummary({ performance_score: 0.75, graded: 2, seen: 1 });
+  assert.deepEqual(summary, { kind: 'scored', percent: 75, graded: 2, seen: 1 });
+});
+
+test('a session where nothing was graded is not a zero', () => {
+  // The common case: an hour spent reading. Reporting 0% would invent the
+  // failure that removing client-sent scores was meant to stop.
+  const summary = completionSummary({ performance_score: null, graded: 0, seen: 3 });
+  assert.equal(summary.kind, 'unscored');
+  assert.equal(summary.percent, null);
+  assert.equal(summary.seen, 3);
+});
+
+test('a null score is never coerced into a graded zero', () => {
+  // Number(null) is 0. Without an explicit check this reports "0%".
+  const summary = completionSummary({ performance_score: null, graded: 2, seen: 0 });
+  assert.equal(summary.kind, 'unscored');
+  assert.equal(summary.percent, null);
+});
+
+test('a genuine zero is still reported', () => {
+  // Graded and got everything wrong. Unlike the cases above, the evidence
+  // supports this one.
+  const summary = completionSummary({ performance_score: 0, graded: 3, seen: 0 });
+  assert.deepEqual(summary, { kind: 'scored', percent: 0, graded: 3, seen: 0 });
+});
+
+test('a session the server saw nothing for says so', () => {
+  assert.equal(completionSummary({ performance_score: null, graded: 0, seen: 0 }).kind, 'empty');
+});
+
+test('an unusable reply is not assumed to be success', () => {
+  assert.equal(completionSummary(null).kind, 'unknown');
+  assert.equal(completionSummary(undefined).kind, 'unknown');
+  assert.equal(completionSummary('ok').kind, 'unknown');
+});
+
+test('a score outside range is clamped rather than rendered', () => {
+  assert.equal(completionSummary({ performance_score: 4, graded: 1 }).percent, 100);
+  assert.equal(completionSummary({ performance_score: -1, graded: 1 }).percent, 0);
+});
+
+test('an unreadable score does not become a percentage', () => {
+  const summary = completionSummary({ performance_score: 'great', graded: 2, seen: 0 });
+  assert.equal(summary.kind, 'unscored');
+  assert.equal(summary.percent, null);
+});
+
+test('a score with nothing graded behind it is not reported as a result', () => {
+  // The server cannot produce this today — it sends a null score whenever
+  // graded is 0 — but the figure is only meaningful as a summary of graded
+  // work, so the client must not render one that has none behind it.
+  const summary = completionSummary({ performance_score: 0.5, graded: 0, seen: 2 });
+  assert.equal(summary.kind, 'unscored');
+  assert.equal(summary.percent, null);
 });
