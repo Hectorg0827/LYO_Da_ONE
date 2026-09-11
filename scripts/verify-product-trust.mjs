@@ -407,6 +407,15 @@ requireText(testPrep, "kind: 'unscored'", 'A session with nothing graded cannot 
 requireText(testPrepPage, "summary.kind === 'unscored'", 'The page has no branch for "nothing was graded"');
 requireText(testPrepTest, 'completionSummary', 'The completion rules are not exercised by tests');
 
+// A failed request is not a fact about the learner. An empty session list
+// rendered as "Nothing scheduled for today" claims something about their day
+// that the page does not know — the same failure it already avoids for the
+// plan list and for readiness.
+// Asserted on the copy the learner actually reads, not on a variable name:
+// an earlier version of this check matched the identifier, which a rename
+// satisfied while the page still said "Nothing scheduled for today".
+requireText(testPrepPage, 'could not load today', 'A failed sessions load is indistinguishable from an empty day');
+
 // The score is the server's to determine. Sending one is the exact §30
 // violation this endpoint was fixed for, whatever the field is called.
 rejectText(apiClient, 'performance_score=', 'The client sends its own session score');

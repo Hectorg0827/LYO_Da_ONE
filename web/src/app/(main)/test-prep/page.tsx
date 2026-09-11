@@ -59,6 +59,7 @@ export default function TestPrepPage() {
   const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
   const [sessions, setSessions] = useState<StudySessionRow[]>([]);
   const [failed, setFailed] = useState(false);
+  const [sessionsFailed, setSessionsFailed] = useState(false);
   const [finishing, setFinishing] = useState<string | null>(null);
   const [finished, setFinished] = useState<Finished | null>(null);
 
@@ -93,7 +94,18 @@ export default function TestPrepPage() {
         api.testPrep.todaySessions(),
       ]);
       if (readinessResult.status === 'fulfilled') setReadiness(readinessResult.value);
-      if (sessionsResult.status === 'fulfilled') setSessions(sessionsResult.value ?? []);
+      if (sessionsResult.status === 'fulfilled') {
+        setSessions(sessionsResult.value ?? []);
+        setSessionsFailed(false);
+      } else {
+        // An empty list and a failed call are different things. Leaving
+        // `sessions` at [] would render "Nothing scheduled for today", which
+        // is a claim about the learner's day rather than about the request —
+        // the same failure this page already avoids for the plan list and for
+        // readiness. Anything already loaded is kept: a refresh that fails
+        // should not erase what we legitimately showed a moment ago.
+        setSessionsFailed(true);
+      }
     } catch {
       // A signed-out visitor has no plans, and a failed call must say so
       // rather than render an empty plan as though it were the learner's.
@@ -361,7 +373,9 @@ export default function TestPrepPage() {
 
         {due.length === 0 ? (
           <p className="mt-3 text-sm text-white/60">
-            Nothing scheduled for today.
+            {sessionsFailed
+              ? 'I could not load today’s sessions just now.'
+              : 'Nothing scheduled for today.'}
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
