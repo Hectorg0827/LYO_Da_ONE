@@ -124,8 +124,11 @@ for (const path of REMOVED_IOS_CLASSROOMS) {
 // an Int, and subject/topics/daily_breakdown are not on StudyPlanRead).
 //
 // Code that looks like persistence and is not hides the gap it leaves. The
-// server does build durable plans, through intake/turn then plans/generate;
-// until a client is wired to that, the honest state is no client integration.
+// server does build durable plans, through intake/turn then plans/generate,
+// and iOS is now wired to exactly that — see Sources/Services/TestPrepService.swift
+// and §3k of verify-product-trust.mjs, which holds the new surface to the same
+// rules as the web one. These entries stay so the broken pair cannot return
+// alongside it.
 const REMOVED_IOS_STUDY_PLANS = [
   'Sources/Services/StudyPlanService.swift',
   'Sources/Models/StudyPlanRecord.swift',
@@ -149,6 +152,33 @@ for (const [file, label] of [
   if (/case\s+\.create:\s*\n\s*return\s+"\/api\/v1\/me\/study_plans"/.test(source)) {
     failures.push(`${label}: POST /api/v1/me/study_plans is a 405 — the server registers GET only`);
   }
+}
+
+// ── iOS opens the Classroom on a scheduled session the one agreed way ──────
+//
+// A study session carries a human `topic` and the `concept_id` the learner's
+// record uses. The topic is what travels to the Classroom: the server derives
+// the concept from it with the same slug rule that produced `concept_id`, so
+// the evidence lands where readiness will look for it. Sending the slug
+// instead would have the Classroom announce "long_division" to a learner, and
+// sending a prose objective as the identity is the bug fixed in the companion
+// backend change.
+//
+// `GENERATE:` is this app's existing convention for a topic with no course
+// behind it. Reusing it rather than inventing a second way in is Phase C.
+const iosTestPrepRules = read('Sources/Models/TestPrepPresentation.swift');
+
+if (!/GENERATE:\\\(topic\)/.test(iosTestPrepRules)) {
+  failures.push(
+    'iOS test prep: a scheduled session must open the Classroom through the '
+      + 'existing GENERATE: topic convention'
+  );
+}
+if (/courseId:\s*"?\bGENERATE:\\\(session\.conceptId\)/.test(iosTestPrepRules)) {
+  failures.push(
+    'iOS test prep: the Classroom is opened on the concept slug — a learner '
+      + 'should never be shown "long_division" as their topic'
+  );
 }
 
 if (failures.length) {

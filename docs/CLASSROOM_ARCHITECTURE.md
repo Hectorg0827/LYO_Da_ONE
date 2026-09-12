@@ -409,10 +409,12 @@ checkout opens without regenerating. Behaviour-preserving: the call was
 fire-and-forget, so nothing a learner sees changes. `verify-classroom-parity`
 fails if either file returns or if a client POSTs to that path again.
 
-**What this leaves open.** iOS has no study-plan persistence. That is now the
-honest state rather than a hidden one, and it is a prerequisite for the
-Classroom entry point, not a substitute for it. Wiring iOS to `intake/turn`
-then `plans/generate` is a real feature and is not done.
+**What this left open, and how it closed.** iOS had no study-plan persistence
+at all — the honest state rather than a hidden one, and a prerequisite for the
+Classroom entry point rather than a substitute for it. Wiring iOS to
+`intake/turn` then `plans/generate` is done in §7.6; the removed files stay
+forbidden by the gate so the broken pair cannot come back beside the working
+one.
 
 **Why not just add a POST route.** It would be the fourth time this codebase
 solved a mismatch by building a second path alongside the one that works —
@@ -493,9 +495,93 @@ to render one that has none.
 The gate rejects `performance_score` appearing in any client request, as a
 query parameter or in a body.
 
-**Still open.** iOS has no test-prep surface; §7.3 applies. The plan's `stats`
-endpoint has no UI — `readiness` covers the same ground more honestly, so it
-may simply not need one.
+**Still open.** The plan's `stats` endpoint has no UI — `readiness` covers the
+same ground more honestly, so it may simply not need one.
+
+---
+
+### 7.6 iOS Test Prep, and a concept key that pointed nowhere
+
+iOS now runs the same flow: `Sources/Views/Main/TestPrep/TestPrepView.swift`,
+reached from the Focus tab, with the decisions in `TestPrepPresentation` and
+`TestPrepState` where tests can drive them. Nobody in this workstream can tap
+through an iOS build, so that separation is not a nicety here — it is the only
+verification this logic gets, and §3k of `verify-product-trust.mjs` holds the
+new surface to the same rules as the web one.
+
+Two things this turned up that reading the route signatures would not have.
+
+**The wire dates do not parse.** `scheduled_at` is serialised from a naive
+`datetime` and arrives as `2026-09-11T22:00:00` — no timezone — and `test_date`
+is a calendar date. `JSONDecoder.lyoDecoder` uses `ISO8601DateFormatter`, which
+rejects both. Typed as `Date`, either would have failed the decode of an
+otherwise perfectly good response: a correct answer, discarded, shown to the
+learner as an error. Both are decoded as strings and parsed leniently.
+
+**A demonstration was recorded against a sentence, not a concept.** The
+Classroom took the concept a graded answer proved from `learning_objective` —
+prose written for the Director, and exactly what `entry-contract.mjs` puts in
+the `objective` query parameter. So a session opened from Home or Test Prep on
+web filed its evidence under `practise_and_apply_quadratic_equations`, while
+readiness, Chat and spaced repetition all name that idea
+`quadratic_equations`.
+
+Nothing looked broken. Evidence was written, the projection ran, a row
+appeared — a row nothing would ever read. A learner could work through every
+session their plan scheduled and still be told they had not started. iOS sent
+no objective and so landed on the topic by luck; that luck is what this
+section was originally going to build on.
+
+The concept now comes from identity only — the lesson being taught, else the
+topic — for both graded paths. Section 8 of `scripts/e2e_learner_loop.py`
+teaches a topic the learner's own plan scheduled and asserts the plan sees it;
+with the old derivation restored it reports the production symptom exactly
+(`'Long division', mastery: None, attempts: 0` for a topic just answered
+correctly).
+
+**Still open on iOS.** The Classroom is opened with a topic but no `objective`
+query parameter, where web sends one. After the fix above that no longer
+affects which concept the evidence lands on — it is teaching guidance only —
+but it does mean the Director gets less to work with on iOS than on web. Worth
+closing for parity of teaching quality, not for correctness of the record.
+
+**A name collision worth recording.** The first draft of the service was
+written as `TestPrepService.swift`, which already existed — calendar events and
+local notifications for an exam, with four live callers — and the new file
+overwrote it. Caught by `git status` reporting a modification where an
+addition was expected, and restored from `HEAD` before anything was committed.
+It is now `TestPrepPlanService`; `StudyPlanService` was unavailable for the
+opposite reason, being the name the gate keeps out. A whole-tree scan for
+duplicate type declarations is what should have come first, and did after.
+
+**Three findings from review, two of which were on web as well.**
+
+*A failed plan lookup could still end in a second plan.* `load_failed`
+deliberately refuses to send a learner who has a plan to intake — that
+transition is commented at length for exactly this reason. But on a first load
+we cannot tell, and the composer was left live beside a warning, so a learner
+could walk into `plans/generate` by hand. On web it was worse: the opening turn
+is sent automatically, so a failed lookup began building a duplicate with no
+input at all. Both now block intake behind a retry until a successful lookup
+says there is no plan, and the guard sits in the request path as well as on the
+controls.
+
+*A failed readiness call was silent.* The figure was kept and went on being
+rendered as current. That is worst in the moment right after finishing a
+session: the evidence has just changed, and the number on screen is the one
+from before the work. Both platforms now say so on the readiness card — its own
+sentence, not the page-level warning, since readiness can fail while everything
+else loads.
+
+*The planned length was dropped on the way into the Classroom.* The row says
+"45 min"; `LivingClassroomService` sent a hard-coded `duration_minutes=10` and
+the view counted against a five-minute target. The length now travels, through
+a defaulted parameter so the four existing classroom entry points are untouched
+and behave exactly as before.
+
+**Not verified by anyone.** Every claim above about iOS is a claim about code
+that compiles and passes its tests in CI. No one has run this screen on a
+device or a simulator.
 
 ---
 
@@ -662,6 +748,15 @@ open backend work.
 `xcodegen generate`. It is also tracked, so the 16 generated entries for the
 removed files were deleted from it by UUID to keep a local checkout openable
 without regenerating first. No dangling UUID survives.
+
+The six files added for Test Prep (§7.6) were **not** hand-added to it. Adding
+a file means minting UUIDs across `PBXBuildFile`, `PBXFileReference`,
+`PBXGroup` and two `PBXSourcesBuildPhase` entries, and this workstream has no
+way to open the result and check it. CI regenerates the project before
+building, so the build and the tests are unaffected; a local checkout needs
+`xcodegen generate` once to see the new files in Xcode. Deleting entries by
+UUID is verifiable by grep, which is why that direction was done by hand and
+this one was not.
 
 ### 10.3 Verification limit
 

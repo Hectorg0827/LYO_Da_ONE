@@ -33,6 +33,8 @@ export const initialState = {
   refreshFailed: false,
   /** The plan list failed and we have never seen a plan. Shown on intake. */
   planLoadFailed: false,
+  /** The readiness call failed; the figure shown may predate the last session. */
+  readinessFailed: false,
   /** What the server measured for the session just finished. */
   notice: null,
   /** Id of the session currently being closed out, if any. */
@@ -73,7 +75,16 @@ export function testPrepReducer(state = initialState, action) {
 
     case 'details_loaded': {
       const next = { ...state };
-      if (action.readiness !== undefined) next.readiness = action.readiness;
+      if (action.readiness !== undefined) {
+        next.readiness = action.readiness;
+        next.readinessFailed = false;
+      } else {
+        // Keep the last figure but stop presenting it as current. Holding it
+        // silently is worst immediately after finishing a session: the
+        // evidence has just changed, and the number on screen is the one from
+        // before the work — rendered as though it accounted for it.
+        next.readinessFailed = true;
+      }
       if (action.sessions !== undefined) {
         next.sessions = action.sessions;
         next.sessionsFailed = false;
@@ -117,6 +128,38 @@ export function testPrepReducer(state = initialState, action) {
     default:
       return state;
   }
+}
+
+/**
+ * May the learner start the intake conversation?
+ *
+ * Not while the plan lookup is in an unknown state. `planLoadFailed` means the
+ * request failed, not that there is no plan — and intake ends in
+ * `plans/generate`, which creates one unconditionally. A learner who already
+ * had a plan would come out with a second, which is exactly the outcome
+ * `load_failed` refuses to cause automatically. Leaving the composer live let
+ * them walk into it by hand instead, which is the same bug with an extra step.
+ *
+ * @param {import('../types').TestPrepState | null | undefined} state
+ * @returns {boolean}
+ */
+export function canStartIntake(state) {
+  return !state?.planLoadFailed;
+}
+
+/**
+ * Said on the readiness card when that one call failed.
+ *
+ * Its own sentence rather than the page-level warning: readiness can fail
+ * while the plan, the countdown and today's sessions all loaded, and claiming
+ * the whole page is stale would overstate one failed call.
+ *
+ * @param {import('../types').TestPrepState | null | undefined} state
+ * @returns {string | null}
+ */
+export function readinessNote(state) {
+  if (!state?.readinessFailed) return null;
+  return 'This may not include your most recent session.';
 }
 
 /**
