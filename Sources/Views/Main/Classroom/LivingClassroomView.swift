@@ -125,7 +125,11 @@ private struct ClassroomLocalNote: Identifiable {
 final class ClassroomTimer: ObservableObject {
     @Published var elapsed: TimeInterval = 0
     private var timer: Timer?
-    let duration: TimeInterval
+    /// The length this session was planned for. Settable because a scheduled
+    /// study session carries its own — a 45-minute slot displayed against a
+    /// hard-coded five-minute target tells the learner the wrong thing about
+    /// work the server planned for them.
+    @Published var duration: TimeInterval
 
     init(duration: TimeInterval = 300) {
         self.duration = duration
@@ -171,6 +175,13 @@ final class ClassroomTimer: ObservableObject {
 struct LivingClassroomView: View {
     let courseId: String
     let courseTitle: String
+    /// Minutes this session was planned for, when something planned it.
+    ///
+    /// `var` with a default so the memberwise initialiser keeps it optional
+    /// and every existing entry point compiles unchanged: Home, Discover and
+    /// the two in MainTabView open a classroom that was never scheduled, and
+    /// nil keeps the behaviour they have today.
+    var durationMinutes: Int? = nil
 
     @StateObject private var service = LivingClassroomService()
     @StateObject private var sessionTimer = ClassroomTimer(duration: 300)
@@ -319,8 +330,12 @@ struct LivingClassroomView: View {
             service.connect(
                 sessionId: courseId,
                 courseId: courseId,
-                topic: courseTitle
+                topic: courseTitle,
+                durationMinutes: durationMinutes
             )
+            if let durationMinutes {
+                sessionTimer.duration = TimeInterval(durationMinutes * 60)
+            }
             sessionTimer.start()
         }
         .onDisappear {

@@ -580,6 +580,30 @@ requireText(iosTestPrepState, 'service.generatePlan', 'iOS never turns intake in
 // of claim as a service that never persisted anything.
 requireText(iosFocus, 'TestPrepView()', 'iOS test prep is not reachable from anywhere');
 
+// A plan that says 45 minutes must not open a ten-minute Classroom. The screen
+// advertises the server's planned length; dropping it on the way in makes that
+// a promise the product does not keep.
+requireText(
+  iosTestPrepRules,
+  'durationMinutes: minutes',
+  'The planned session length is dropped on the way into the Classroom'
+);
+
+// Intake ends in `plans/generate`, which creates a plan unconditionally. While
+// the plan lookup has failed we do not know whether one already exists, and a
+// live composer lets a learner walk into a duplicate by hand — the same
+// outcome the failed-load transition exists to prevent.
+requireText(
+  iosTestPrepState,
+  'canStartIntake',
+  'iOS lets a learner start a second plan after a failed lookup'
+);
+requireText(
+  iosTestPrepView,
+  '!model.state.canStartIntake',
+  'The iOS intake composer stays live after a failed plan lookup'
+);
+
 // The state lives where tests can drive it. On web the equivalent screen took
 // six rounds of review findings, four of them defects in the previous round's
 // fix, until the decisions moved out of the view. Nobody in this workstream
@@ -609,6 +633,9 @@ const REQUIRED_RULES = [
   'iOS cannot tell "not started" from a measured zero',
   'An unmeasured iOS figure falls back to zero',
   'iOS test prep is not reachable from anywhere',
+  'The planned session length is dropped on the way into the Classroom',
+  'iOS lets a learner start a second plan after a failed lookup',
+  'The iOS intake composer stays live after a failed plan lookup',
 ];
 
 for (const rule of REQUIRED_RULES) {

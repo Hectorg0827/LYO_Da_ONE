@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  canStartIntake,
   initialState,
+  readinessNote,
   sessionsNote,
   staleWarning,
   testPrepReducer,
@@ -219,4 +221,81 @@ test('a working day with sessions says nothing extra', () => {
   const copy = todayCopy(loaded(), 2);
   assert.equal(copy.note, null);
   assert.equal(copy.emptyMessage, null);
+});
+
+// ─── A failed lookup must not become a second plan ───────────────────────────
+
+test('intake is blocked while we do not know whether a plan exists', () => {
+  // `load_failed` already refuses to send a learner who HAS a plan to intake.
+  // This is the other half: on a first load we cannot tell, and intake ends in
+  // `plans/generate`, which creates one unconditionally. Leaving the composer
+  // live let a learner walk into a duplicate by hand — and on web the opening
+  // turn is sent automatically, so they would not even have had to.
+  const failed = run({ type: 'load_started' }, { type: 'load_failed' });
+  assert.equal(failed.stage, 'intake');
+  assert.equal(canStartIntake(failed), false, 'a duplicate plan is one keystroke away');
+});
+
+test('a retry that succeeds unblocks intake', () => {
+  const failed = run({ type: 'load_started' }, { type: 'load_failed' });
+  const retried = testPrepReducer(failed, { type: 'load_started' });
+  assert.equal(canStartIntake(retried), true);
+
+  const confirmed = testPrepReducer(retried, { type: 'no_plan' });
+  assert.equal(canStartIntake(confirmed), true, 'a successful empty list is the green light');
+});
+
+test('a learner with no plan and no failure can start straight away', () => {
+  const fresh = run({ type: 'load_started' }, { type: 'no_plan' }, { type: 'load_settled' });
+  assert.equal(canStartIntake(fresh), true);
+  assert.equal(canStartIntake(initialState), true);
+  assert.equal(canStartIntake(null), true);
+});
+
+// ─── A stale readiness figure is not a current one ───────────────────────────
+
+test('a failed readiness call keeps the figure but stops calling it current', () => {
+  const state = testPrepReducer(loaded(), { type: 'details_loaded', sessions: [] });
+  assert.ok(state.readiness, 'the last figure is kept rather than blanked');
+  assert.ok(readinessNote(state), 'but it is no longer presented as up to date');
+});
+
+test('the readiness note is worst to omit right after finishing a session', () => {
+  // The evidence has just changed. Showing the figure from before the work,
+  // silently, claims it accounted for that work.
+  const done = testPrepReducer(loaded(), {
+    type: 'finish_succeeded',
+    sessionId: 's1',
+    notice: 'Scored 75%.',
+  });
+  const refreshFailed = testPrepReducer(done, { type: 'details_loaded', sessions: [] });
+  assert.ok(readinessNote(refreshFailed));
+  assert.equal(refreshFailed.notice, 'Scored 75%.', 'and the result still stands');
+});
+
+test('a successful readiness call clears the note', () => {
+  const failed = testPrepReducer(loaded(), { type: 'details_loaded', sessions: [] });
+  const ok = testPrepReducer(failed, {
+    type: 'details_loaded',
+    readiness: { plan_id: 'p1' },
+    sessions: [],
+  });
+  assert.equal(readinessNote(ok), null);
+});
+
+test('a readiness failure does not claim the whole page is stale', () => {
+  const state = testPrepReducer(loaded(), { type: 'details_loaded', sessions: [] });
+  assert.equal(staleWarning(state), null);
+  assert.ok(readinessNote(state));
+  assert.equal(readinessNote(loaded()), null);
+  assert.equal(readinessNote(null), null);
+});
+
+test('three different failures never produce the same sentence', () => {
+  const all = testPrepReducer(
+    testPrepReducer(loaded(), { type: 'details_loaded' }),
+    { type: 'load_failed' }
+  );
+  const sentences = [staleWarning(all), sessionsNote(all), readinessNote(all)];
+  assert.equal(new Set(sentences).size, 3, sentences.join(' | '));
 });

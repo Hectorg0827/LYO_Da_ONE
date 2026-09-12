@@ -20,7 +20,9 @@ import {
   topicStanding,
 } from '@/lib/test-prep.mjs';
 import {
+  canStartIntake,
   initialState,
+  readinessNote,
   staleWarning,
   testPrepReducer,
   todayCopy,
@@ -122,6 +124,10 @@ export default function TestPrepPage() {
     async (message: string) => {
       const text = message.trim();
       if (!text || sending) return;
+      // Checked here and not only on the controls. This call ends in
+      // `plans/generate`, which creates a plan unconditionally, and a plan
+      // must not be created while we do not know whether one already exists.
+      if (!canStartIntake(state)) return;
       setSending(true);
       setTurns((prev) => [...prev, { role: 'learner', text }]);
       setDraft('');
@@ -192,7 +198,11 @@ export default function TestPrepPage() {
   // Chat. Two surfaces opening test prep with two different sentences is how
   // they start being two different features.
   useEffect(() => {
+    // `canStartIntake` gates this too, and it matters most here: this effect
+    // opens the conversation on its own, so a failed plan lookup would begin
+    // building a second plan without the learner having done anything at all.
     if (stage !== 'intake' || !isAuthenticated || loading || startedIntake.current) return;
+    if (!canStartIntake(state)) return;
     startedIntake.current = true;
     void sendTurn(TEST_PREP_OPENING_TURN);
   }, [stage, isAuthenticated, loading, sendTurn]);
@@ -240,10 +250,24 @@ export default function TestPrepPage() {
           A few questions — the subject, the date, what&apos;s on it — and I&apos;ll build you a
           plan with real sessions.
         </p>
+        {/* Not a warning beside a live composer. Intake ends in
+            `plans/generate`, which creates a plan unconditionally — so a
+            learner who already has one would come out with a second, because
+            a request happened to fail. The way forward is to find out. */}
         {failed && (
-          <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
-            I couldn&apos;t load your existing plans just now, so this will start a new one.
-          </p>
+          <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+            <p>
+              I couldn&apos;t check whether you already have a plan. Let me try again
+              before we start a new one.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadPlan()}
+              className="mt-2 rounded-lg bg-amber-400/20 px-3 py-1.5 font-medium text-amber-100 hover:bg-amber-400/30"
+            >
+              Try again
+            </button>
+          </div>
         )}
 
         <div className="mt-6 space-y-3">
@@ -279,11 +303,12 @@ export default function TestPrepPage() {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Type your answer…"
             aria-label="Your answer"
-            className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-white outline-none placeholder:text-white/40"
+            disabled={!canStartIntake(state)}
+            className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-white outline-none placeholder:text-white/40 disabled:opacity-40"
           />
           <button
             type="submit"
-            disabled={sending || !draft.trim()}
+            disabled={sending || !draft.trim() || !canStartIntake(state)}
             className="rounded-xl bg-white px-4 py-3 text-black disabled:opacity-40"
             aria-label="Send"
           >
@@ -304,6 +329,11 @@ export default function TestPrepPage() {
   // All four combinations of list and failure are decided in one place; this
   // section kept getting one branch right and another wrong.
   const today = todayCopy(state, due.length);
+  // Its own sentence, on its own card. Readiness can fail while the plan, the
+  // countdown and today's sessions all loaded; the page-level warning would
+  // overstate one failed call, and saying nothing understates it — badly, in
+  // the moment right after finishing a session.
+  const readinessStale = readinessNote(state);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
@@ -324,6 +354,9 @@ export default function TestPrepPage() {
           <Target className="h-4 w-4" aria-hidden />
           How ready you are
         </div>
+        {readinessStale && (
+          <p className="mt-2 text-sm text-white/50">{readinessStale}</p>
+        )}
 
         {/* Each branch is a different claim. A plan with nothing assessed has
             a readiness of 0, and rendering that as "0%" would tell a learner

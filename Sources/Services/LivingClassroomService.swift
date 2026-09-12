@@ -94,7 +94,8 @@ class LivingClassroomService: ObservableObject {
         courseId: String? = nil,
         lessonId: String? = nil,
         topic: String? = nil,
-        language: String = "auto"
+        language: String = "auto",
+        durationMinutes: Int? = nil
     ) {
         self.topic = (topic?.isEmpty == false ? topic! : sessionId)
 
@@ -160,7 +161,15 @@ class LivingClassroomService: ObservableObject {
                     URLQueryItem(name: "topic", value: resolvedTopic),
                     URLQueryItem(name: "language", value: language),
                     URLQueryItem(name: "mode", value: "solo"),
-                    URLQueryItem(name: "duration_minutes", value: "10"),
+                    // The Director plans a lesson to fit this. A scheduled
+                    // study session carries its own length, and sending 10 for
+                    // a 45-minute slot has the server plan a quarter of the
+                    // work the learner was told to expect. Clamped to the
+                    // range the backend accepts.
+                    URLQueryItem(
+                        name: "duration_minutes",
+                        value: String(min(max(durationMinutes ?? 10, 3), 60))
+                    ),
                 ]
                 if let lessonId = self.lessonId, !lessonId.isEmpty {
                     urlComponents.queryItems?.append(

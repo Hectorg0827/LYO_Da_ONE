@@ -673,6 +673,7 @@ export interface TestPrepState {
   sessionsFailed: boolean;
   refreshFailed: boolean;
   planLoadFailed: boolean;
+  readinessFailed: boolean;
   notice: string | null;
   finishing: string | null;
 }

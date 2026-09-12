@@ -139,10 +139,18 @@ enum TestPrepPresentation {
     /// Returns nil for a session with no topic. A Classroom with nothing to
     /// teach is not a destination, and the row should render without a link
     /// rather than opening an empty one.
-    static func classroomEntry(for session: PlannedSession) -> (courseId: String, title: String)? {
+    /// The planned length travels too. This screen tells the learner a session
+    /// is 45 minutes; opening a Classroom that plans ten, and counts against a
+    /// five-minute target, makes that a promise the product does not keep.
+    /// A non-positive length is dropped rather than passed on, so the
+    /// Classroom's own default applies instead of a nonsense one.
+    static func classroomEntry(
+        for session: PlannedSession
+    ) -> (courseId: String, title: String, durationMinutes: Int?)? {
         let topic = session.topic.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !topic.isEmpty else { return nil }
-        return (courseId: "GENERATE:\(topic)", title: topic)
+        let minutes = session.durationMinutes > 0 ? session.durationMinutes : nil
+        return (courseId: "GENERATE:\(topic)", title: topic, durationMinutes: minutes)
     }
 
     // MARK: Intake

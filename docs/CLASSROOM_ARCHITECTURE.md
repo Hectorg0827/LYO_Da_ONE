@@ -554,6 +554,31 @@ It is now `TestPrepPlanService`; `StudyPlanService` was unavailable for the
 opposite reason, being the name the gate keeps out. A whole-tree scan for
 duplicate type declarations is what should have come first, and did after.
 
+**Three findings from review, two of which were on web as well.**
+
+*A failed plan lookup could still end in a second plan.* `load_failed`
+deliberately refuses to send a learner who has a plan to intake — that
+transition is commented at length for exactly this reason. But on a first load
+we cannot tell, and the composer was left live beside a warning, so a learner
+could walk into `plans/generate` by hand. On web it was worse: the opening turn
+is sent automatically, so a failed lookup began building a duplicate with no
+input at all. Both now block intake behind a retry until a successful lookup
+says there is no plan, and the guard sits in the request path as well as on the
+controls.
+
+*A failed readiness call was silent.* The figure was kept and went on being
+rendered as current. That is worst in the moment right after finishing a
+session: the evidence has just changed, and the number on screen is the one
+from before the work. Both platforms now say so on the readiness card — its own
+sentence, not the page-level warning, since readiness can fail while everything
+else loads.
+
+*The planned length was dropped on the way into the Classroom.* The row says
+"45 min"; `LivingClassroomService` sent a hard-coded `duration_minutes=10` and
+the view counted against a five-minute target. The length now travels, through
+a defaulted parameter so the four existing classroom entry points are untouched
+and behave exactly as before.
+
 **Not verified by anyone.** Every claim above about iOS is a claim about code
 that compiles and passes its tests in CI. No one has run this screen on a
 device or a simulator.

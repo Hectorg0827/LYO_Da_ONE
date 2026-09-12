@@ -79,6 +79,19 @@ final class TestPrepDecodingTests: XCTestCase {
     }
 }
 
+/// Builds a session row with one field varied, for the cases the shared
+/// `session()` helper cannot express.
+enum StudySessionFixture {
+    static func with(durationMinutes: Int) -> PlannedSession {
+        PlannedSession(
+            id: "s1", scheduledAt: "2026-09-11T09:00:00",
+            durationMinutes: durationMinutes, topic: "Long division",
+            sessionType: "practice", conceptId: "long_division",
+            status: "scheduled", performanceScore: nil
+        )
+    }
+}
+
 final class TestPrepPresentationTests: XCTestCase {
 
     private func readiness(
@@ -240,6 +253,24 @@ final class TestPrepPresentationTests: XCTestCase {
         // study "long_division". The server derives the concept from the topic
         // with the same slug rule that produced `conceptId`.
         XCTAssertEqual(entry?.title, "Long division")
+    }
+
+    func testTheSessionsPlannedLengthTravelsWithIt() {
+        // The row says "45 min". Opening a Classroom that plans ten and counts
+        // against a five-minute target makes that a promise the product does
+        // not keep.
+        let entry = TestPrepPresentation.classroomEntry(for: session())
+
+        XCTAssertEqual(entry?.durationMinutes, 45)
+    }
+
+    func testANonsenseLengthIsDroppedRatherThanPassedOn() {
+        // So the Classroom's own default applies instead of a zero-minute one.
+        let zero = StudySessionFixture.with(durationMinutes: 0)
+        let negative = StudySessionFixture.with(durationMinutes: -5)
+
+        XCTAssertNil(TestPrepPresentation.classroomEntry(for: zero)?.durationMinutes)
+        XCTAssertNil(TestPrepPresentation.classroomEntry(for: negative)?.durationMinutes)
     }
 
     func testASessionWithNoTopicHasNowhereToGo() {
@@ -517,5 +548,98 @@ final class TestPrepStateTests: XCTestCase {
 
         XCTAssertNil(copy.note)
         XCTAssertNil(copy.emptyMessage)
+    }
+
+
+    // MARK: A failed lookup must not become a second plan
+
+    func testIntakeIsBlockedWhileWeDoNotKnowWhetherAPlanExists() {
+        // `loadFailed` already refuses to send a learner who HAS a plan to
+        // intake. This is the other half: on a first load we cannot tell, and
+        // intake ends in `plans/generate`, which creates one unconditionally.
+        // Leaving the composer live let a learner walk into a duplicate by
+        // hand — the same bug the transition avoids, with one extra step.
+        var state = TestPrepState()
+        state.loadStarted()
+        state.loadFailed()
+
+        XCTAssertEqual(state.stage, .intake)
+        XCTAssertFalse(state.canStartIntake, "a duplicate plan is one keystroke away")
+    }
+
+    func testARetryThatSucceedsUnblocksIntake() {
+        var state = TestPrepState()
+        state.loadStarted()
+        state.loadFailed()
+
+        state.loadStarted()
+        XCTAssertTrue(state.canStartIntake)
+
+        state.noPlan()
+        XCTAssertTrue(state.canStartIntake, "a successful empty list is the green light")
+    }
+
+    func testALearnerWithNoPlanAndNoFailureCanStartStraightAway() {
+        var state = TestPrepState()
+        state.loadStarted()
+        state.noPlan()
+        state.loadSettled()
+
+        XCTAssertTrue(state.canStartIntake)
+        XCTAssertTrue(TestPrepState().canStartIntake)
+    }
+
+    // MARK: A stale readiness figure is not a current one
+
+    func testAFailedReadinessCallKeepsTheFigureButStopsCallingItCurrent() {
+        var state = loaded()
+        state.detailsLoaded(readiness: nil, sessions: [])
+
+        XCTAssertNotNil(state.readiness, "the last figure is kept rather than blanked")
+        XCTAssertNotNil(state.readinessNote, "but it is no longer presented as up to date")
+    }
+
+    func testTheReadinessNoteIsWorstToOmitRightAfterFinishingASession() {
+        // The evidence has just changed. Showing the figure from before the
+        // work, silently, claims it accounted for that work.
+        var state = loaded()
+        state.finishSucceeded(sessionId: "s1", notice: "Scored 75%.")
+        state.detailsLoaded(readiness: nil, sessions: [])
+
+        XCTAssertNotNil(state.readinessNote)
+        XCTAssertEqual(state.notice, "Scored 75%.", "and the result still stands")
+    }
+
+    func testASuccessfulReadinessCallClearsTheNote() {
+        var state = loaded()
+        state.detailsLoaded(readiness: nil, sessions: [])
+        state.detailsLoaded(
+            readiness: PlanReadiness(
+                planId: "p1", subject: "Maths", testDate: "2026-09-25",
+                daysRemaining: 14, readiness: 0.5, topicsTotal: 2,
+                topicsAssessed: 2, topics: [], focusNext: []
+            ),
+            sessions: []
+        )
+
+        XCTAssertNil(state.readinessNote)
+    }
+
+    func testAReadinessFailureDoesNotClaimTheWholeScreenIsStale() {
+        var state = loaded()
+        state.detailsLoaded(readiness: nil, sessions: [])
+
+        XCTAssertNil(state.staleWarning)
+        XCTAssertNotNil(state.readinessNote)
+        XCTAssertNil(loaded().readinessNote)
+    }
+
+    func testThreeDifferentFailuresNeverProduceTheSameSentence() {
+        var state = loaded()
+        state.detailsLoaded(readiness: nil, sessions: nil)
+        state.loadFailed()
+
+        let sentences = [state.staleWarning, state.sessionsNote, state.readinessNote]
+        XCTAssertEqual(Set(sentences.compactMap { $0 }).count, 3, "\(sentences)")
     }
 }

@@ -36,6 +36,7 @@ struct TestPrepView: View {
         let id: String
         let courseId: String
         let title: String
+        let durationMinutes: Int?
     }
 
     var body: some View {
@@ -60,7 +61,11 @@ struct TestPrepView: View {
         .navigationTitle("Test prep")
         .task { await model.load() }
         .fullScreenCover(item: $classroomEntry) { entry in
-            LivingClassroomView(courseId: entry.courseId, courseTitle: entry.title)
+            LivingClassroomView(
+                courseId: entry.courseId,
+                courseTitle: entry.title,
+                durationMinutes: entry.durationMinutes
+            )
                 .environmentObject(uiStackStore)
                 .environmentObject(uiState)
         }
@@ -81,9 +86,19 @@ struct TestPrepView: View {
             // A failed plan list is said here, on the screen it sent them to.
             // Silently showing intake to someone who already has a plan is how
             // a learner ends up with two.
+            // Not a warning beside a live composer. Starting intake here ends
+            // in `plans/generate`, which creates a plan unconditionally — so a
+            // learner who already has one would come out with a second,
+            // because a request happened to fail. The way forward is to find
+            // out, not to guess.
             if model.state.planLoadFailed {
-                noticeBox("I could not check for an existing plan just now, so this "
-                          + "may be asking you something you have already answered.")
+                noticeBox("I could not check whether you already have a plan. "
+                          + "Let me try again before we start a new one.")
+                Button("Try again") {
+                    Task { await model.load() }
+                }
+                .font(DesignTokens.Typography.labelLarge)
+                .foregroundColor(DesignTokens.Colors.accent)
             }
 
             ForEach(model.transcript) { line in
@@ -102,7 +117,7 @@ struct TestPrepView: View {
                     .padding(DesignTokens.Spacing.sm)
                     .background(DesignTokens.Colors.surface)
                     .cornerRadius(DesignTokens.Radius.md)
-                    .disabled(model.intakeBusy)
+                    .disabled(model.intakeBusy || !model.state.canStartIntake)
 
                 Button {
                     let message = draft
@@ -118,6 +133,7 @@ struct TestPrepView: View {
                 }
                 .foregroundColor(DesignTokens.Colors.accent)
                 .disabled(model.intakeBusy
+                          || !model.state.canStartIntake
                           || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -163,6 +179,12 @@ struct TestPrepView: View {
                         .font(DesignTokens.Typography.labelMedium)
                         .foregroundColor(DesignTokens.Colors.textSecondary)
                 }
+            }
+
+            if let note = model.state.readinessNote {
+                Text(note)
+                    .font(DesignTokens.Typography.bodySmall)
+                    .foregroundColor(DesignTokens.Colors.textTertiary)
             }
 
             switch TestPrepPresentation.readinessHeadline(model.state.readiness) {
@@ -276,7 +298,10 @@ struct TestPrepView: View {
                 if let entry = TestPrepPresentation.classroomEntry(for: session) {
                     Button("Start") {
                         classroomEntry = ClassroomEntry(
-                            id: session.id, courseId: entry.courseId, title: entry.title
+                            id: session.id,
+                            courseId: entry.courseId,
+                            title: entry.title,
+                            durationMinutes: entry.durationMinutes
                         )
                     }
                     .font(DesignTokens.Typography.labelLarge)

@@ -38,6 +38,9 @@ struct TestPrepState: Equatable {
     var refreshFailed = false
     /// The plan list failed and we have never seen a plan. Said on intake.
     var planLoadFailed = false
+    /// The readiness call failed; what the card shows may predate the last
+    /// session the learner finished.
+    var readinessFailed = false
 
     /// What the server measured for the session just finished.
     var notice: String?
@@ -54,6 +57,16 @@ struct TestPrepState: Equatable {
         planLoadFailed = false
     }
 
+    /// May the learner start the intake conversation?
+    ///
+    /// No, while the plan lookup is in an unknown state. `planLoadFailed`
+    /// means the request failed, not that there is no plan — and intake ends
+    /// in `plans/generate`, which creates one unconditionally. A learner who
+    /// already had a plan would come out with a second, which is exactly the
+    /// outcome `loadFailed` refuses to cause automatically. Leaving the
+    /// composer live let them walk into it by hand instead.
+    var canStartIntake: Bool { !planLoadFailed }
+
     mutating func planLoaded(id: String) {
         stage = .plan
         planId = id
@@ -69,7 +82,16 @@ struct TestPrepState: Equatable {
     /// `nil` for either argument means that call failed — which is different
     /// from a call that succeeded and returned nothing.
     mutating func detailsLoaded(readiness: PlanReadiness?, sessions: [PlannedSession]?) {
-        if let readiness { self.readiness = readiness }
+        if let readiness {
+            self.readiness = readiness
+            readinessFailed = false
+        } else {
+            // Keep the last figure but stop presenting it as current. Silently
+            // holding it is worst immediately after finishing a session: the
+            // evidence has just changed, and the number on screen is the one
+            // from before the work — shown as though it accounted for it.
+            readinessFailed = true
+        }
         if let sessions {
             self.sessions = sessions
             sessionsFailed = false
@@ -134,6 +156,15 @@ struct TestPrepState: Equatable {
     /// about the request, not about the learner's day.
     var sessionsNote: String? {
         sessionsFailed ? "I could not load today’s sessions just now." : nil
+    }
+
+    /// Said on the readiness card when that one call failed.
+    ///
+    /// Its own sentence rather than the page-level warning: readiness can fail
+    /// while the plan, the countdown and today's sessions all loaded, and
+    /// claiming the whole screen is stale would overstate one failed call.
+    var readinessNote: String? {
+        readinessFailed ? "This may not include your most recent session." : nil
     }
 
     /// What the Today section says, for every combination of list and failure.
@@ -230,6 +261,10 @@ final class TestPrepViewModel: ObservableObject {
     func sendIntake(_ message: String) async {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !intakeBusy else { return }
+        // Checked here and not only in the view. A disabled control is a
+        // render; this is the call that ends in `plans/generate`, and a plan
+        // must not be created while we do not know whether one exists.
+        guard state.canStartIntake else { return }
 
         intakeBusy = true
         intakeError = nil
